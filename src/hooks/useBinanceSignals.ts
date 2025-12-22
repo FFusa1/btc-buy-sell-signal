@@ -40,7 +40,10 @@ export function useBinanceSignals(refreshInterval: number = 30000) {
     try {
       setError(null);
       
-      const { data: responseData, error: fnError } = await supabase.functions.invoke('binance-signals');
+      // Add cache-busting timestamp to force fresh data
+      const { data: responseData, error: fnError } = await supabase.functions.invoke('binance-signals', {
+        body: { timestamp: Date.now() }
+      });
       
       if (fnError) {
         throw new Error(fnError.message);
