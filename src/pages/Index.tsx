@@ -7,7 +7,7 @@ import { CandlestickChart5s } from '@/components/CandlestickChart5s';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 const Index = () => {
-  const { data, loading, error, lastUpdated, refetch } = useBinanceSignals(1000);
+  const { data, loading, error, lastUpdated, refetch } = useBinanceSignals(10000);
 
   if (loading && !data) {
     return (
@@ -90,7 +90,7 @@ const Index = () => {
             {/* Disclaimer */}
             <div className="text-center text-xs text-muted-foreground py-4 border-t border-border/50">
               <p>⚠️ This is for informational purposes only. Not financial advice.</p>
-              <p className="mt-1">Data refreshes every second from Binance API.</p>
+              <p className="mt-1">Data refreshes every 10 seconds from Binance API.</p>
             </div>
           </>
         )}
