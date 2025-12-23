@@ -3,6 +3,7 @@ import { TradingSignal } from '@/components/TradingSignal';
 import { PriceDisplay } from '@/components/PriceDisplay';
 import { IndicatorsPanel } from '@/components/IndicatorsPanel';
 import { MiniChart } from '@/components/MiniChart';
+import { CandlestickChart5s } from '@/components/CandlestickChart5s';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 const Index = () => {
@@ -82,6 +83,9 @@ const Index = () => {
               <MiniChart candles={data.recentCandles} />
               <IndicatorsPanel indicators={data.indicators} />
             </div>
+
+            {/* 5-Second Candlestick Chart */}
+            <CandlestickChart5s candles={data.recentCandles} />
 
             {/* Disclaimer */}
             <div className="text-center text-xs text-muted-foreground py-4 border-t border-border/50">
