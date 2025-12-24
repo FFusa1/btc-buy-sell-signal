@@ -19,6 +19,13 @@ interface Indicators {
   trend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
 }
 
+interface ShortTermSignal {
+  signal: 'BUY' | 'SELL' | 'HOLD';
+  confidence: number;
+  reason: string;
+  timeframe: string;
+}
+
 interface SignalData {
   currentPrice: number;
   priceChange24h: number;
@@ -28,6 +35,7 @@ interface SignalData {
   reason: string;
   indicators: Indicators;
   recentCandles: Kline[];
+  shortTermSignal: ShortTermSignal;
 }
 
 export function useBinanceSignals(refreshInterval: number = 30000) {

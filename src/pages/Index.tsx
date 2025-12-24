@@ -4,6 +4,7 @@ import { PriceDisplay } from '@/components/PriceDisplay';
 import { IndicatorsPanel } from '@/components/IndicatorsPanel';
 import { MiniChart } from '@/components/MiniChart';
 import { CandlestickChart5s } from '@/components/CandlestickChart5s';
+import { ShortTermSignal } from '@/components/ShortTermSignal';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 const Index = () => {
@@ -83,6 +84,16 @@ const Index = () => {
               <MiniChart candles={data.recentCandles} />
               <IndicatorsPanel indicators={data.indicators} />
             </div>
+
+            {/* Short-Term Signal (1-minute) */}
+            {data.shortTermSignal && (
+              <ShortTermSignal
+                signal={data.shortTermSignal.signal}
+                confidence={data.shortTermSignal.confidence}
+                reason={data.shortTermSignal.reason}
+                timeframe={data.shortTermSignal.timeframe}
+              />
+            )}
 
             {/* 5-Second Candlestick Chart */}
             <CandlestickChart5s candles={data.recentCandles} />
