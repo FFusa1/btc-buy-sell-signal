@@ -36,6 +36,7 @@ interface SignalData {
   indicators: Indicators;
   recentCandles: Kline[];
   shortTermSignal: ShortTermSignal;
+  fiveMinSignal: ShortTermSignal;
 }
 
 export function useBinanceSignals(refreshInterval: number = 30000) {

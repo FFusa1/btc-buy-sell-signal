@@ -85,15 +85,25 @@ const Index = () => {
               <IndicatorsPanel indicators={data.indicators} />
             </div>
 
-            {/* Short-Term Signal (1-minute) */}
-            {data.shortTermSignal && (
-              <ShortTermSignal
-                signal={data.shortTermSignal.signal}
-                confidence={data.shortTermSignal.confidence}
-                reason={data.shortTermSignal.reason}
-                timeframe={data.shortTermSignal.timeframe}
-              />
-            )}
+            {/* Short-Term Signals (1-minute and 5-minute) */}
+            <div className="grid md:grid-cols-2 gap-6">
+              {data.shortTermSignal && (
+                <ShortTermSignal
+                  signal={data.shortTermSignal.signal}
+                  confidence={data.shortTermSignal.confidence}
+                  reason={data.shortTermSignal.reason}
+                  timeframe={data.shortTermSignal.timeframe}
+                />
+              )}
+              {data.fiveMinSignal && (
+                <ShortTermSignal
+                  signal={data.fiveMinSignal.signal}
+                  confidence={data.fiveMinSignal.confidence}
+                  reason={data.fiveMinSignal.reason}
+                  timeframe={data.fiveMinSignal.timeframe}
+                />
+              )}
+            </div>
 
             {/* 5-Second Candlestick Chart */}
             <CandlestickChart5s candles={data.recentCandles} />
