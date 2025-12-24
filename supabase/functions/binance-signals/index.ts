@@ -15,6 +15,13 @@ interface Kline {
   closeTime: number;
 }
 
+interface ShortTermSignal {
+  signal: 'BUY' | 'SELL' | 'HOLD';
+  confidence: number;
+  reason: string;
+  timeframe: string;
+}
+
 interface AnalysisResult {
   currentPrice: number;
   priceChange24h: number;
@@ -30,12 +37,8 @@ interface AnalysisResult {
     trend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
   };
   recentCandles: Kline[];
-  shortTermSignal: {
-    signal: 'BUY' | 'SELL' | 'HOLD';
-    confidence: number;
-    reason: string;
-    timeframe: string;
-  };
+  shortTermSignal: ShortTermSignal;
+  fiveMinSignal: ShortTermSignal;
 }
 
 // Calculate Simple Moving Average
@@ -281,7 +284,12 @@ serve(async (req) => {
       'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=30'
     );
     
-    const [hourlyResponse, minuteResponse] = await Promise.all([hourlyPromise, minutePromise]);
+    // Fetch 5-minute klines for medium-short-term analysis
+    const fiveMinPromise = fetch(
+      'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=5m&limit=30'
+    );
+    
+    const [hourlyResponse, minuteResponse, fiveMinResponse] = await Promise.all([hourlyPromise, minutePromise, fiveMinPromise]);
     
     if (!hourlyResponse.ok) {
       throw new Error(`Binance API error (hourly): ${hourlyResponse.status}`);
@@ -289,9 +297,13 @@ serve(async (req) => {
     if (!minuteResponse.ok) {
       throw new Error(`Binance API error (minute): ${minuteResponse.status}`);
     }
+    if (!fiveMinResponse.ok) {
+      throw new Error(`Binance API error (5min): ${fiveMinResponse.status}`);
+    }
     
     const rawHourlyKlines = await hourlyResponse.json();
     const rawMinuteKlines = await minuteResponse.json();
+    const rawFiveMinKlines = await fiveMinResponse.json();
     
     const parseKlines = (raw: any[]): Kline[] => raw.map((k: any[]) => ({
       openTime: k[0],
@@ -305,14 +317,18 @@ serve(async (req) => {
     
     const hourlyKlines = parseKlines(rawHourlyKlines);
     const minuteKlines = parseKlines(rawMinuteKlines);
+    const fiveMinKlines = parseKlines(rawFiveMinKlines);
     
-    console.log(`Received ${hourlyKlines.length} hourly candles and ${minuteKlines.length} minute candles, analyzing...`);
+    console.log(`Received ${hourlyKlines.length} hourly, ${minuteKlines.length} 1m, ${fiveMinKlines.length} 5m candles, analyzing...`);
     
     // Analyze hourly data
     const hourlyAnalysis = analyzePrice(hourlyKlines);
     
     // Analyze 1-minute data for short-term signal
     const shortTermAnalysis = analyzeShortTerm(minuteKlines);
+    
+    // Analyze 5-minute data
+    const fiveMinAnalysis = analyzeShortTerm(fiveMinKlines);
     
     const closePrices = hourlyKlines.map(k => k.close);
     const currentPrice = closePrices[closePrices.length - 1];
@@ -332,10 +348,16 @@ serve(async (req) => {
         confidence: shortTermAnalysis.confidence,
         reason: shortTermAnalysis.reason,
         timeframe: '1 minute'
+      },
+      fiveMinSignal: {
+        signal: fiveMinAnalysis.signal,
+        confidence: fiveMinAnalysis.confidence,
+        reason: fiveMinAnalysis.reason,
+        timeframe: '5 minutes'
       }
     };
     
-    console.log(`Hourly Signal: ${analysis.signal}, 1-Min Signal: ${analysis.shortTermSignal.signal}`);
+    console.log(`Hourly: ${analysis.signal}, 1m: ${analysis.shortTermSignal.signal}, 5m: ${analysis.fiveMinSignal.signal}`);
     
     return new Response(JSON.stringify(analysis), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
