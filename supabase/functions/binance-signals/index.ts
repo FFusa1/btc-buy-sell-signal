@@ -30,6 +30,12 @@ interface AnalysisResult {
     trend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
   };
   recentCandles: Kline[];
+  shortTermSignal: {
+    signal: 'BUY' | 'SELL' | 'HOLD';
+    confidence: number;
+    reason: string;
+    timeframe: string;
+  };
 }
 
 // Calculate Simple Moving Average
@@ -69,10 +75,9 @@ function calculateMomentum(prices: number[], period: number = 10): number {
 }
 
 // Analyze price data and generate trading signal
-function analyzePrice(klines: Kline[]): AnalysisResult {
+function analyzePrice(klines: Kline[]): { signal: 'BUY' | 'SELL' | 'HOLD'; confidence: number; reason: string; indicators: any; } {
   const closePrices = klines.map(k => k.close);
   const currentPrice = closePrices[closePrices.length - 1];
-  const price24hAgo = closePrices[closePrices.length - 24] || closePrices[0];
   
   const sma7 = calculateSMA(closePrices, 7);
   const sma25 = calculateSMA(closePrices, 25);
@@ -162,9 +167,6 @@ function analyzePrice(klines: Kline[]): AnalysisResult {
   }
   
   return {
-    currentPrice,
-    priceChange24h: currentPrice - price24hAgo,
-    priceChangePercent24h: ((currentPrice - price24hAgo) / price24hAgo) * 100,
     signal,
     confidence: Math.round(confidence),
     reason: reason || 'Mixed signals',
@@ -174,8 +176,90 @@ function analyzePrice(klines: Kline[]): AnalysisResult {
       rsi: Math.round(rsi * 100) / 100,
       momentum: Math.round(momentum * 100) / 100,
       trend
-    },
-    recentCandles: klines.slice(-10)
+    }
+  };
+}
+
+// Analyze short-term (1-minute) data
+function analyzeShortTerm(klines: Kline[]): { signal: 'BUY' | 'SELL' | 'HOLD'; confidence: number; reason: string; } {
+  const closePrices = klines.map(k => k.close);
+  
+  // Use shorter periods for 1-minute data
+  const sma3 = calculateSMA(closePrices, 3);
+  const sma7 = calculateSMA(closePrices, 7);
+  const rsi = calculateRSI(closePrices, 7); // Shorter RSI period
+  const momentum = calculateMomentum(closePrices, 5);
+  
+  let buyScore = 0;
+  let sellScore = 0;
+  const reasons: string[] = [];
+  
+  // Short-term SMA crossover
+  if (sma3 > sma7) {
+    buyScore += 25;
+    reasons.push('3-min MA above 7-min MA');
+  } else {
+    sellScore += 25;
+    reasons.push('3-min MA below 7-min MA');
+  }
+  
+  // RSI for short-term
+  if (rsi < 35) {
+    buyScore += 25;
+    reasons.push('Short-term oversold');
+  } else if (rsi > 65) {
+    sellScore += 25;
+    reasons.push('Short-term overbought');
+  } else if (rsi < 50) {
+    sellScore += 10;
+  } else {
+    buyScore += 10;
+  }
+  
+  // Quick momentum
+  if (momentum > 0.1) {
+    buyScore += 25;
+    reasons.push('Positive short momentum');
+  } else if (momentum < -0.1) {
+    sellScore += 25;
+    reasons.push('Negative short momentum');
+  } else {
+    buyScore += 5;
+    sellScore += 5;
+  }
+  
+  // Last 3 candle direction
+  const last3 = closePrices.slice(-3);
+  const upCandles = last3.filter((p, i) => i > 0 && p > last3[i - 1]).length;
+  if (upCandles >= 2) {
+    buyScore += 20;
+    reasons.push('Recent uptrend');
+  } else if (upCandles === 0) {
+    sellScore += 20;
+    reasons.push('Recent downtrend');
+  }
+  
+  const totalScore = buyScore + sellScore;
+  const buyConfidence = totalScore > 0 ? (buyScore / totalScore) * 100 : 50;
+  
+  let signal: 'BUY' | 'SELL' | 'HOLD' = 'HOLD';
+  let confidence = 50;
+  let reason = 'Short-term neutral';
+  
+  if (buyConfidence > 55) {
+    signal = 'BUY';
+    confidence = buyConfidence;
+    reason = reasons.filter(r => r.includes('above') || r.includes('Positive') || r.includes('oversold') || r.includes('uptrend')).join('. ');
+  } else if (buyConfidence < 45) {
+    signal = 'SELL';
+    confidence = 100 - buyConfidence;
+    reason = reasons.filter(r => r.includes('below') || r.includes('Negative') || r.includes('overbought') || r.includes('downtrend')).join('. ');
+  }
+  
+  return {
+    signal,
+    confidence: Math.round(confidence),
+    reason: reason || 'Mixed short-term signals'
   };
 }
 
@@ -187,18 +271,29 @@ serve(async (req) => {
   try {
     console.log('Fetching Binance BTCUSDT data...');
     
-    // Fetch 1-hour klines for the last 100 periods
-    const klineResponse = await fetch(
+    // Fetch 1-hour klines for long-term analysis
+    const hourlyPromise = fetch(
       'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=100'
     );
     
-    if (!klineResponse.ok) {
-      throw new Error(`Binance API error: ${klineResponse.status}`);
+    // Fetch 1-minute klines for short-term analysis
+    const minutePromise = fetch(
+      'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=30'
+    );
+    
+    const [hourlyResponse, minuteResponse] = await Promise.all([hourlyPromise, minutePromise]);
+    
+    if (!hourlyResponse.ok) {
+      throw new Error(`Binance API error (hourly): ${hourlyResponse.status}`);
+    }
+    if (!minuteResponse.ok) {
+      throw new Error(`Binance API error (minute): ${minuteResponse.status}`);
     }
     
-    const rawKlines = await klineResponse.json();
+    const rawHourlyKlines = await hourlyResponse.json();
+    const rawMinuteKlines = await minuteResponse.json();
     
-    const klines: Kline[] = rawKlines.map((k: any[]) => ({
+    const parseKlines = (raw: any[]): Kline[] => raw.map((k: any[]) => ({
       openTime: k[0],
       open: parseFloat(k[1]),
       high: parseFloat(k[2]),
@@ -208,11 +303,39 @@ serve(async (req) => {
       closeTime: k[6]
     }));
     
-    console.log(`Received ${klines.length} candles, analyzing...`);
+    const hourlyKlines = parseKlines(rawHourlyKlines);
+    const minuteKlines = parseKlines(rawMinuteKlines);
     
-    const analysis = analyzePrice(klines);
+    console.log(`Received ${hourlyKlines.length} hourly candles and ${minuteKlines.length} minute candles, analyzing...`);
     
-    console.log(`Signal: ${analysis.signal}, Confidence: ${analysis.confidence}%`);
+    // Analyze hourly data
+    const hourlyAnalysis = analyzePrice(hourlyKlines);
+    
+    // Analyze 1-minute data for short-term signal
+    const shortTermAnalysis = analyzeShortTerm(minuteKlines);
+    
+    const closePrices = hourlyKlines.map(k => k.close);
+    const currentPrice = closePrices[closePrices.length - 1];
+    const price24hAgo = closePrices[closePrices.length - 24] || closePrices[0];
+    
+    const analysis: AnalysisResult = {
+      currentPrice,
+      priceChange24h: currentPrice - price24hAgo,
+      priceChangePercent24h: ((currentPrice - price24hAgo) / price24hAgo) * 100,
+      signal: hourlyAnalysis.signal,
+      confidence: hourlyAnalysis.confidence,
+      reason: hourlyAnalysis.reason,
+      indicators: hourlyAnalysis.indicators,
+      recentCandles: hourlyKlines.slice(-10),
+      shortTermSignal: {
+        signal: shortTermAnalysis.signal,
+        confidence: shortTermAnalysis.confidence,
+        reason: shortTermAnalysis.reason,
+        timeframe: '1 minute'
+      }
+    };
+    
+    console.log(`Hourly Signal: ${analysis.signal}, 1-Min Signal: ${analysis.shortTermSignal.signal}`);
     
     return new Response(JSON.stringify(analysis), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
