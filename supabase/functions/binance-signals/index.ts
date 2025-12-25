@@ -5,6 +5,25 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Simple in-memory cache to prevent rate limiting
+const cacheStore: { data: unknown | null; timestamp: number } = { data: null, timestamp: 0 };
+const CACHE_TTL_MS = 2000; // Cache for 2 seconds
+
+// Fetch with retry logic for rate limiting
+async function fetchWithRetry(url: string, retries = 3, delay = 500): Promise<Response> {
+  for (let i = 0; i < retries; i++) {
+    const response = await fetch(url);
+    if (response.status === 429) {
+      console.log(`Rate limited, waiting ${delay}ms before retry ${i + 1}/${retries}`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      delay *= 2; // Exponential backoff
+      continue;
+    }
+    return response;
+  }
+  throw new Error('Rate limited by Binance API. Please wait a moment and try again.');
+}
+
 interface Kline {
   openTime: number;
   open: number;
@@ -272,24 +291,22 @@ serve(async (req) => {
   }
 
   try {
+    // Check cache first
+    if (cacheStore.data && Date.now() - cacheStore.timestamp < CACHE_TTL_MS) {
+      console.log('Returning cached data');
+      return new Response(JSON.stringify(cacheStore.data), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+    
     console.log('Fetching Binance BTCUSDT data...');
     
-    // Fetch 1-hour klines for long-term analysis
-    const hourlyPromise = fetch(
-      'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=100'
-    );
-    
-    // Fetch 1-minute klines for short-term analysis
-    const minutePromise = fetch(
-      'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=30'
-    );
-    
-    // Fetch 5-minute klines for medium-short-term analysis
-    const fiveMinPromise = fetch(
-      'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=5m&limit=30'
-    );
-    
-    const [hourlyResponse, minuteResponse, fiveMinResponse] = await Promise.all([hourlyPromise, minutePromise, fiveMinPromise]);
+    // Fetch all klines in parallel with retry logic
+    const [hourlyResponse, minuteResponse, fiveMinResponse] = await Promise.all([
+      fetchWithRetry('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=100'),
+      fetchWithRetry('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=30'),
+      fetchWithRetry('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=5m&limit=30')
+    ]);
     
     if (!hourlyResponse.ok) {
       throw new Error(`Binance API error (hourly): ${hourlyResponse.status}`);
@@ -358,6 +375,10 @@ serve(async (req) => {
     };
     
     console.log(`Hourly: ${analysis.signal}, 1m: ${analysis.shortTermSignal.signal}, 5m: ${analysis.fiveMinSignal.signal}`);
+    
+    // Update cache
+    cacheStore.data = analysis;
+    cacheStore.timestamp = Date.now();
     
     return new Response(JSON.stringify(analysis), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
