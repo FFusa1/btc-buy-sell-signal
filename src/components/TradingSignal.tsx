@@ -1,6 +1,5 @@
 import { ArrowUp, ArrowDown, Minus, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
 interface TradingSignalProps {
   signal: 'BUY' | 'SELL' | 'HOLD';
   confidence: number;
@@ -8,8 +7,13 @@ interface TradingSignalProps {
   onRefresh?: () => void;
   isRefreshing?: boolean;
 }
-
-export function TradingSignal({ signal, confidence, reason, onRefresh, isRefreshing }: TradingSignalProps) {
+export function TradingSignal({
+  signal,
+  confidence,
+  reason,
+  onRefresh,
+  isRefreshing
+}: TradingSignalProps) {
   const signalConfig = {
     BUY: {
       icon: ArrowUp,
@@ -33,35 +37,18 @@ export function TradingSignal({ signal, confidence, reason, onRefresh, isRefresh
       label: 'HOLD'
     }
   };
-
   const config = signalConfig[signal];
   const Icon = config.icon;
-
-  return (
-    <div className={cn(
-      'relative rounded-2xl border-2 p-6 backdrop-blur-sm transition-all duration-300',
-      config.bgClass,
-      'shadow-lg',
-      config.glowClass
-    )}>
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Signal</h3>
-        {onRefresh && (
-          <button
-            onClick={onRefresh}
-            disabled={isRefreshing}
-            className="p-2 rounded-lg hover:bg-white/10 transition-colors disabled:opacity-50"
-          >
+  return <div className={cn('relative rounded-2xl border-2 p-6 backdrop-blur-sm transition-all duration-300', config.bgClass, 'shadow-lg', config.glowClass)}>
+      <div className="flex items-center justify-between mb-4 bg-inherit">
+        <h3 className="text-sm font-medium uppercase tracking-wider text-secondary-foreground">Signal</h3>
+        {onRefresh && <button onClick={onRefresh} disabled={isRefreshing} className="p-2 rounded-lg hover:bg-white/10 transition-colors disabled:opacity-50 text-secondary-foreground">
             <RefreshCw className={cn('w-4 h-4 text-muted-foreground', isRefreshing && 'animate-spin')} />
-          </button>
-        )}
+          </button>}
       </div>
       
-      <div className="flex items-center gap-4">
-        <div className={cn(
-          'w-16 h-16 rounded-xl flex items-center justify-center',
-          config.bgClass
-        )}>
+      <div className="flex items-center gap-4 text-destructive">
+        <div className={cn('w-16 h-16 rounded-xl flex items-center justify-center', config.bgClass)}>
           <Icon className={cn('w-8 h-8', config.textClass)} />
         </div>
         
@@ -84,12 +71,10 @@ export function TradingSignal({ signal, confidence, reason, onRefresh, isRefresh
       {/* Confidence bar */}
       <div className="mt-4">
         <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-          <div 
-            className={cn('h-full rounded-full transition-all duration-500', config.textClass.replace('text-', 'bg-'))}
-            style={{ width: `${confidence}%` }}
-          />
+          <div className={cn('h-full rounded-full transition-all duration-500', config.textClass.replace('text-', 'bg-'))} style={{
+          width: `${confidence}%`
+        }} />
         </div>
       </div>
-    </div>
-  );
+    </div>;
 }
