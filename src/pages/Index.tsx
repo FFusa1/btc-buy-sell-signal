@@ -13,7 +13,7 @@ const Index = () => {
     error,
     lastUpdated,
     refetch
-  } = useBinanceSignals(10000);
+  } = useBinanceSignals(1000);
   if (loading && !data) {
     return <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center space-y-4">
