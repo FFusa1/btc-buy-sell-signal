@@ -81,19 +81,38 @@ export function TradingSignal({
       
       {/* 1% Growth Confidence Indicator */}
       {showGrowthIndicator && (
-        <div className="mt-4 pt-4 border-t border-white/10">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-emerald-400" />
-            <span className="text-sm text-muted-foreground">1% Growth Confidence:</span>
-            <span className={cn('text-sm font-semibold', signal === 'BUY' ? 'text-emerald-400' : signal === 'SELL' ? 'text-rose-400' : 'text-amber-400')}>
-              {Math.round(confidence * 0.75)}%
-            </span>
+        <div className="mt-4 pt-4 border-t border-white/10 space-y-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-emerald-400" />
+              <span className="text-sm text-muted-foreground">1% Growth Confidence:</span>
+              <span className={cn('text-sm font-semibold', signal === 'BUY' ? 'text-emerald-400' : signal === 'SELL' ? 'text-rose-400' : 'text-amber-400')}>
+                {Math.round(confidence * 0.75)}%
+              </span>
+            </div>
+            <div className="mt-2 h-1.5 bg-white/10 rounded-full overflow-hidden">
+              <div 
+                className="h-full rounded-full bg-emerald-500 transition-all duration-500" 
+                style={{ width: `${Math.round(confidence * 0.75)}%` }} 
+              />
+            </div>
           </div>
-          <div className="mt-2 h-1.5 bg-white/10 rounded-full overflow-hidden">
-            <div 
-              className="h-full rounded-full bg-emerald-500 transition-all duration-500" 
-              style={{ width: `${Math.round(confidence * 0.75)}%` }} 
-            />
+          
+          {/* 100% Confidence Price Change */}
+          <div>
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-primary" />
+              <span className="text-sm text-muted-foreground">100% Confidence Price Change:</span>
+              <span className={cn('text-sm font-semibold', signal === 'BUY' ? 'text-emerald-400' : signal === 'SELL' ? 'text-rose-400' : 'text-amber-400')}>
+                {signal === 'BUY' ? '+' : signal === 'SELL' ? '-' : '±'}{(1 / (confidence / 100)).toFixed(2)}%
+              </span>
+            </div>
+            <div className="mt-2 h-1.5 bg-white/10 rounded-full overflow-hidden">
+              <div 
+                className={cn('h-full rounded-full transition-all duration-500', signal === 'BUY' ? 'bg-emerald-500' : signal === 'SELL' ? 'bg-rose-500' : 'bg-amber-500')} 
+                style={{ width: '100%' }} 
+              />
+            </div>
           </div>
         </div>
       )}
