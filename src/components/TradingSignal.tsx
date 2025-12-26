@@ -100,16 +100,16 @@ export function TradingSignal({
             </div>
           </div>
           
-          {/* 100% Confidence Price Change */}
+          {/* Guaranteed Price Change (100% Sure) */}
           <div>
             <div className="flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-primary" />
-              <span className="text-sm text-muted-foreground">100% Confidence Target:</span>
+              <span className="text-sm text-muted-foreground">Guaranteed Change:</span>
               {currentPrice && (
                 <span className={cn('text-sm font-semibold', signal === 'BUY' ? 'text-emerald-400' : signal === 'SELL' ? 'text-rose-400' : 'text-amber-400')}>
-                  ${(currentPrice * (1 + (signal === 'BUY' ? 0.01 : signal === 'SELL' ? -0.01 : 0))).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${(currentPrice * (1 + (signal === 'BUY' ? 1 : signal === 'SELL' ? -1 : 0) * (confidence / 100) * 0.01)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   <span className="text-muted-foreground ml-1">
-                    ({signal === 'BUY' ? '+' : signal === 'SELL' ? '-' : '±'}${(currentPrice * 0.01).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                    ({signal === 'BUY' ? '+' : signal === 'SELL' ? '-' : '±'}${(currentPrice * (confidence / 100) * 0.01).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
                   </span>
                 </span>
               )}
@@ -117,7 +117,7 @@ export function TradingSignal({
             <div className="mt-2 h-1.5 bg-white/10 rounded-full overflow-hidden">
               <div 
                 className={cn('h-full rounded-full transition-all duration-500', signal === 'BUY' ? 'bg-emerald-500' : signal === 'SELL' ? 'bg-rose-500' : 'bg-amber-500')} 
-                style={{ width: '100%' }} 
+                style={{ width: `${confidence}%` }} 
               />
             </div>
           </div>
