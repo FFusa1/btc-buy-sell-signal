@@ -58,7 +58,7 @@ const Index = () => {
             <PriceDisplay currentPrice={data.currentPrice} priceChange24h={data.priceChange24h} priceChangePercent24h={data.priceChangePercent24h} />
             
             {/* Hourly Signal with 1% Growth Indicator */}
-            <TradingSignal signal={data.signal} confidence={data.confidence} reason={data.reason} onRefresh={refetch} isRefreshing={loading} showGrowthIndicator />
+            <TradingSignal signal={data.signal} confidence={data.confidence} reason={data.reason} onRefresh={refetch} isRefreshing={loading} showGrowthIndicator currentPrice={data.currentPrice} />
 
             {/* Chart and Indicators */}
             <div className="grid md:grid-cols-2 gap-6">

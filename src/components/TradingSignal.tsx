@@ -7,6 +7,7 @@ interface TradingSignalProps {
   onRefresh?: () => void;
   isRefreshing?: boolean;
   showGrowthIndicator?: boolean;
+  currentPrice?: number;
 }
 export function TradingSignal({
   signal,
@@ -14,7 +15,8 @@ export function TradingSignal({
   reason,
   onRefresh,
   isRefreshing,
-  showGrowthIndicator
+  showGrowthIndicator,
+  currentPrice
 }: TradingSignalProps) {
   const signalConfig = {
     BUY: {
@@ -102,10 +104,15 @@ export function TradingSignal({
           <div>
             <div className="flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-primary" />
-              <span className="text-sm text-muted-foreground">100% Confidence Price Change:</span>
-              <span className={cn('text-sm font-semibold', signal === 'BUY' ? 'text-emerald-400' : signal === 'SELL' ? 'text-rose-400' : 'text-amber-400')}>
-                {signal === 'BUY' ? '+' : signal === 'SELL' ? '-' : '±'}{(1 / (confidence / 100)).toFixed(2)}%
-              </span>
+              <span className="text-sm text-muted-foreground">100% Confidence Target:</span>
+              {currentPrice && (
+                <span className={cn('text-sm font-semibold', signal === 'BUY' ? 'text-emerald-400' : signal === 'SELL' ? 'text-rose-400' : 'text-amber-400')}>
+                  ${(currentPrice * (1 + (signal === 'BUY' ? 0.01 : signal === 'SELL' ? -0.01 : 0))).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  <span className="text-muted-foreground ml-1">
+                    ({signal === 'BUY' ? '+' : signal === 'SELL' ? '-' : '±'}${(currentPrice * 0.01).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                  </span>
+                </span>
+              )}
             </div>
             <div className="mt-2 h-1.5 bg-white/10 rounded-full overflow-hidden">
               <div 
