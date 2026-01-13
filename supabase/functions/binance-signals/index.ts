@@ -68,6 +68,7 @@ interface AnalysisResult {
   fiveMinSignal: ShortTermSignal;
   patternSignal: PatternSignal;
   fiveMinPatternSignal: PatternSignal;
+  thirtySecPatternSignal: PatternSignal;
 }
 
 // Calculate Simple Moving Average
@@ -488,10 +489,11 @@ serve(async (req) => {
     console.log('Fetching Binance BTCUSDT data...');
     
     // Fetch all klines in parallel with retry logic
-    const [hourlyResponse, minuteResponse, fiveMinResponse] = await Promise.all([
+    const [hourlyResponse, minuteResponse, fiveMinResponse, oneSecResponse] = await Promise.all([
       fetchWithRetry('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=100'),
       fetchWithRetry('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=30'),
-      fetchWithRetry('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=5m&limit=30')
+      fetchWithRetry('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=5m&limit=30'),
+      fetchWithRetry('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1s&limit=300')
     ]);
     
     if (!hourlyResponse.ok) {
@@ -503,10 +505,14 @@ serve(async (req) => {
     if (!fiveMinResponse.ok) {
       throw new Error(`Binance API error (5min): ${fiveMinResponse.status}`);
     }
+    if (!oneSecResponse.ok) {
+      throw new Error(`Binance API error (1s): ${oneSecResponse.status}`);
+    }
     
     const rawHourlyKlines = await hourlyResponse.json();
     const rawMinuteKlines = await minuteResponse.json();
     const rawFiveMinKlines = await fiveMinResponse.json();
+    const rawOneSecKlines = await oneSecResponse.json();
     
     const parseKlines = (raw: any[]): Kline[] => raw.map((k: any[]) => ({
       openTime: k[0],
@@ -521,8 +527,26 @@ serve(async (req) => {
     const hourlyKlines = parseKlines(rawHourlyKlines);
     const minuteKlines = parseKlines(rawMinuteKlines);
     const fiveMinKlines = parseKlines(rawFiveMinKlines);
+    const oneSecKlines = parseKlines(rawOneSecKlines);
     
-    console.log(`Received ${hourlyKlines.length} hourly, ${minuteKlines.length} 1m, ${fiveMinKlines.length} 5m candles, analyzing...`);
+    // Aggregate 1-second candles into 30-second candles
+    const thirtySecKlines: Kline[] = [];
+    for (let i = 0; i < oneSecKlines.length; i += 30) {
+      const chunk = oneSecKlines.slice(i, i + 30);
+      if (chunk.length > 0) {
+        thirtySecKlines.push({
+          openTime: chunk[0].openTime,
+          open: chunk[0].open,
+          high: Math.max(...chunk.map(k => k.high)),
+          low: Math.min(...chunk.map(k => k.low)),
+          close: chunk[chunk.length - 1].close,
+          volume: chunk.reduce((sum, k) => sum + k.volume, 0),
+          closeTime: chunk[chunk.length - 1].closeTime
+        });
+      }
+    }
+    
+    console.log(`Received ${hourlyKlines.length} hourly, ${minuteKlines.length} 1m, ${fiveMinKlines.length} 5m, ${thirtySecKlines.length} 30s candles, analyzing...`);
     
     // Analyze hourly data
     const hourlyAnalysis = analyzePrice(hourlyKlines);
@@ -540,6 +564,10 @@ serve(async (req) => {
     // Analyze candlestick patterns (5-minute)
     const fiveMinPatternAnalysis = analyzeCandlePatterns(fiveMinKlines);
     fiveMinPatternAnalysis.timeframe = '5 minutes';
+    
+    // Analyze candlestick patterns (30-second)
+    const thirtySecPatternAnalysis = analyzeCandlePatterns(thirtySecKlines);
+    thirtySecPatternAnalysis.timeframe = '30 seconds';
     
     const closePrices = hourlyKlines.map(k => k.close);
     const currentPrice = closePrices[closePrices.length - 1];
@@ -567,10 +595,11 @@ serve(async (req) => {
         timeframe: '5 minutes'
       },
       patternSignal: patternAnalysis,
-      fiveMinPatternSignal: fiveMinPatternAnalysis
+      fiveMinPatternSignal: fiveMinPatternAnalysis,
+      thirtySecPatternSignal: thirtySecPatternAnalysis
     };
     
-    console.log(`Hourly: ${analysis.signal}, 1m: ${analysis.shortTermSignal.signal}, 5m: ${analysis.fiveMinSignal.signal}, Pattern: ${analysis.patternSignal.signal}, 5m Pattern: ${analysis.fiveMinPatternSignal.signal}`);
+    console.log(`Hourly: ${analysis.signal}, 1m: ${analysis.shortTermSignal.signal}, 5m: ${analysis.fiveMinSignal.signal}, Pattern: ${analysis.patternSignal.signal}, 5m Pattern: ${analysis.fiveMinPatternSignal.signal}, 30s Pattern: ${analysis.thirtySecPatternSignal.signal}`);
     
     // Update cache
     cacheStore.data = analysis;

@@ -98,6 +98,17 @@ const Index = () => {
               )}
             </div>
 
+            {/* 30-Second Pattern Signal */}
+            {data.thirtySecPatternSignal && (
+              <PatternSignal 
+                signal={data.thirtySecPatternSignal.signal}
+                confidence={data.thirtySecPatternSignal.confidence}
+                reason={data.thirtySecPatternSignal.reason}
+                patterns={data.thirtySecPatternSignal.patterns}
+                timeframe={data.thirtySecPatternSignal.timeframe}
+              />
+            )}
+
             {/* Disclaimer */}
             
           </>}
