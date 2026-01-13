@@ -76,16 +76,27 @@ const Index = () => {
             {/* 5-Second Candlestick Chart */}
             <CandlestickChart5s candles={data.recentCandles} />
 
-            {/* Candlestick Pattern Signal */}
-            {data.patternSignal && (
-              <PatternSignal 
-                signal={data.patternSignal.signal}
-                confidence={data.patternSignal.confidence}
-                reason={data.patternSignal.reason}
-                patterns={data.patternSignal.patterns}
-                timeframe={data.patternSignal.timeframe}
-              />
-            )}
+            {/* Candlestick Pattern Signals */}
+            <div className="grid md:grid-cols-2 gap-6">
+              {data.patternSignal && (
+                <PatternSignal 
+                  signal={data.patternSignal.signal}
+                  confidence={data.patternSignal.confidence}
+                  reason={data.patternSignal.reason}
+                  patterns={data.patternSignal.patterns}
+                  timeframe={data.patternSignal.timeframe}
+                />
+              )}
+              {data.fiveMinPatternSignal && (
+                <PatternSignal 
+                  signal={data.fiveMinPatternSignal.signal}
+                  confidence={data.fiveMinPatternSignal.confidence}
+                  reason={data.fiveMinPatternSignal.reason}
+                  patterns={data.fiveMinPatternSignal.patterns}
+                  timeframe={data.fiveMinPatternSignal.timeframe}
+                />
+              )}
+            </div>
 
             {/* Disclaimer */}
             

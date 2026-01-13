@@ -46,6 +46,7 @@ interface SignalData {
   shortTermSignal: ShortTermSignal;
   fiveMinSignal: ShortTermSignal;
   patternSignal: PatternSignal;
+  fiveMinPatternSignal: PatternSignal;
 }
 
 export function useBinanceSignals(refreshInterval: number = 30000) {

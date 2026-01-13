@@ -67,6 +67,7 @@ interface AnalysisResult {
   shortTermSignal: ShortTermSignal;
   fiveMinSignal: ShortTermSignal;
   patternSignal: PatternSignal;
+  fiveMinPatternSignal: PatternSignal;
 }
 
 // Calculate Simple Moving Average
@@ -532,8 +533,13 @@ serve(async (req) => {
     // Analyze 5-minute data
     const fiveMinAnalysis = analyzeShortTerm(fiveMinKlines);
     
-    // Analyze candlestick patterns
+    // Analyze candlestick patterns (hourly)
     const patternAnalysis = analyzeCandlePatterns(hourlyKlines);
+    patternAnalysis.timeframe = '1 hour';
+    
+    // Analyze candlestick patterns (5-minute)
+    const fiveMinPatternAnalysis = analyzeCandlePatterns(fiveMinKlines);
+    fiveMinPatternAnalysis.timeframe = '5 minutes';
     
     const closePrices = hourlyKlines.map(k => k.close);
     const currentPrice = closePrices[closePrices.length - 1];
@@ -560,10 +566,11 @@ serve(async (req) => {
         reason: fiveMinAnalysis.reason,
         timeframe: '5 minutes'
       },
-      patternSignal: patternAnalysis
+      patternSignal: patternAnalysis,
+      fiveMinPatternSignal: fiveMinPatternAnalysis
     };
     
-    console.log(`Hourly: ${analysis.signal}, 1m: ${analysis.shortTermSignal.signal}, 5m: ${analysis.fiveMinSignal.signal}, Pattern: ${analysis.patternSignal.signal}`);
+    console.log(`Hourly: ${analysis.signal}, 1m: ${analysis.shortTermSignal.signal}, 5m: ${analysis.fiveMinSignal.signal}, Pattern: ${analysis.patternSignal.signal}, 5m Pattern: ${analysis.fiveMinPatternSignal.signal}`);
     
     // Update cache
     cacheStore.data = analysis;
