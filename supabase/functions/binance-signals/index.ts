@@ -41,6 +41,14 @@ interface ShortTermSignal {
   timeframe: string;
 }
 
+interface PatternSignal {
+  signal: 'BUY' | 'SELL' | 'HOLD';
+  confidence: number;
+  reason: string;
+  patterns: string[];
+  timeframe: string;
+}
+
 interface AnalysisResult {
   currentPrice: number;
   priceChange24h: number;
@@ -58,6 +66,7 @@ interface AnalysisResult {
   recentCandles: Kline[];
   shortTermSignal: ShortTermSignal;
   fiveMinSignal: ShortTermSignal;
+  patternSignal: PatternSignal;
 }
 
 // Calculate Simple Moving Average
@@ -285,6 +294,182 @@ function analyzeShortTerm(klines: Kline[]): { signal: 'BUY' | 'SELL' | 'HOLD'; c
   };
 }
 
+// Detect candlestick pattern type
+function detectCandlePattern(candle: Kline): string | null {
+  const body = Math.abs(candle.close - candle.open);
+  const range = candle.high - candle.low;
+  const upperWick = candle.high - Math.max(candle.open, candle.close);
+  const lowerWick = Math.min(candle.open, candle.close) - candle.low;
+  const isBullish = candle.close > candle.open;
+  
+  // Doji - very small body relative to range
+  if (body < range * 0.1 && range > 0) {
+    if (upperWick > body * 2 && lowerWick > body * 2) {
+      return 'DOJI';
+    }
+    if (lowerWick > body * 3 && upperWick < body) {
+      return 'DRAGONFLY_DOJI';
+    }
+    if (upperWick > body * 3 && lowerWick < body) {
+      return 'GRAVESTONE_DOJI';
+    }
+    return 'DOJI';
+  }
+  
+  // Hammer / Hanging Man - small body at top, long lower wick
+  if (lowerWick > body * 2 && upperWick < body * 0.5 && body > 0) {
+    return isBullish ? 'HAMMER' : 'HANGING_MAN';
+  }
+  
+  // Shooting Star / Inverted Hammer - small body at bottom, long upper wick
+  if (upperWick > body * 2 && lowerWick < body * 0.5 && body > 0) {
+    return isBullish ? 'INVERTED_HAMMER' : 'SHOOTING_STAR';
+  }
+  
+  // Marubozu - big candle with almost no wicks
+  if (body > range * 0.9 && range > 0) {
+    return isBullish ? 'BULLISH_MARUBOZU' : 'BEARISH_MARUBOZU';
+  }
+  
+  // Big candle - large body
+  if (body > range * 0.7 && range > 0) {
+    return isBullish ? 'BIG_BULLISH' : 'BIG_BEARISH';
+  }
+  
+  // Spinning top - small body, equal wicks
+  if (body < range * 0.3 && Math.abs(upperWick - lowerWick) < range * 0.2) {
+    return 'SPINNING_TOP';
+  }
+  
+  return null;
+}
+
+// Analyze candlestick patterns for trading signals
+function analyzeCandlePatterns(klines: Kline[]): PatternSignal {
+  const recentCandles = klines.slice(-10);
+  const patterns: string[] = [];
+  let buyScore = 0;
+  let sellScore = 0;
+  const reasons: string[] = [];
+  
+  // Analyze each candle for patterns
+  recentCandles.forEach((candle, index) => {
+    const pattern = detectCandlePattern(candle);
+    if (pattern) {
+      patterns.push(pattern);
+      
+      // Score patterns based on bullish/bearish implications
+      switch (pattern) {
+        case 'HAMMER':
+          buyScore += 20;
+          reasons.push('Hammer pattern (bullish reversal)');
+          break;
+        case 'INVERTED_HAMMER':
+          buyScore += 15;
+          reasons.push('Inverted Hammer (potential bullish)');
+          break;
+        case 'DRAGONFLY_DOJI':
+          buyScore += 18;
+          reasons.push('Dragonfly Doji (bullish signal)');
+          break;
+        case 'BULLISH_MARUBOZU':
+          buyScore += 25;
+          reasons.push('Bullish Marubozu (strong buying)');
+          break;
+        case 'BIG_BULLISH':
+          buyScore += 20;
+          reasons.push('Big Bullish candle');
+          break;
+        case 'SHOOTING_STAR':
+          sellScore += 20;
+          reasons.push('Shooting Star (bearish reversal)');
+          break;
+        case 'HANGING_MAN':
+          sellScore += 18;
+          reasons.push('Hanging Man (bearish warning)');
+          break;
+        case 'GRAVESTONE_DOJI':
+          sellScore += 18;
+          reasons.push('Gravestone Doji (bearish signal)');
+          break;
+        case 'BEARISH_MARUBOZU':
+          sellScore += 25;
+          reasons.push('Bearish Marubozu (strong selling)');
+          break;
+        case 'BIG_BEARISH':
+          sellScore += 20;
+          reasons.push('Big Bearish candle');
+          break;
+        case 'DOJI':
+        case 'SPINNING_TOP':
+          // Neutral - indicate indecision
+          buyScore += 5;
+          sellScore += 5;
+          break;
+      }
+    }
+  });
+  
+  // Check for engulfing patterns (2-candle pattern)
+  for (let i = 1; i < recentCandles.length; i++) {
+    const prev = recentCandles[i - 1];
+    const curr = recentCandles[i];
+    const prevBody = Math.abs(prev.close - prev.open);
+    const currBody = Math.abs(curr.close - curr.open);
+    
+    // Bullish Engulfing
+    if (prev.close < prev.open && curr.close > curr.open && 
+        curr.open <= prev.close && curr.close >= prev.open && currBody > prevBody) {
+      patterns.push('BULLISH_ENGULFING');
+      buyScore += 25;
+      reasons.push('Bullish Engulfing pattern');
+    }
+    
+    // Bearish Engulfing
+    if (prev.close > prev.open && curr.close < curr.open && 
+        curr.open >= prev.close && curr.close <= prev.open && currBody > prevBody) {
+      patterns.push('BEARISH_ENGULFING');
+      sellScore += 25;
+      reasons.push('Bearish Engulfing pattern');
+    }
+  }
+  
+  // If no patterns found, add neutral score
+  if (patterns.length === 0) {
+    buyScore = 50;
+    sellScore = 50;
+  }
+  
+  const totalScore = buyScore + sellScore;
+  const buyConfidence = totalScore > 0 ? (buyScore / totalScore) * 100 : 50;
+  
+  let signal: 'BUY' | 'SELL' | 'HOLD' = 'HOLD';
+  let confidence = 50;
+  let reason = 'No clear candlestick patterns detected';
+  
+  if (buyConfidence > 55) {
+    signal = 'BUY';
+    confidence = buyConfidence;
+    reason = [...new Set(reasons.filter(r => 
+      r.includes('bullish') || r.includes('Bullish') || r.includes('Hammer') || r.includes('Dragonfly')
+    ))].slice(0, 3).join('. ') || 'Bullish patterns detected';
+  } else if (buyConfidence < 45) {
+    signal = 'SELL';
+    confidence = 100 - buyConfidence;
+    reason = [...new Set(reasons.filter(r => 
+      r.includes('bearish') || r.includes('Bearish') || r.includes('Shooting') || r.includes('Hanging') || r.includes('Gravestone')
+    ))].slice(0, 3).join('. ') || 'Bearish patterns detected';
+  }
+  
+  return {
+    signal,
+    confidence: Math.round(confidence),
+    reason,
+    patterns: [...new Set(patterns)],
+    timeframe: '1 hour'
+  };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -347,6 +532,9 @@ serve(async (req) => {
     // Analyze 5-minute data
     const fiveMinAnalysis = analyzeShortTerm(fiveMinKlines);
     
+    // Analyze candlestick patterns
+    const patternAnalysis = analyzeCandlePatterns(hourlyKlines);
+    
     const closePrices = hourlyKlines.map(k => k.close);
     const currentPrice = closePrices[closePrices.length - 1];
     const price24hAgo = closePrices[closePrices.length - 24] || closePrices[0];
@@ -371,10 +559,11 @@ serve(async (req) => {
         confidence: fiveMinAnalysis.confidence,
         reason: fiveMinAnalysis.reason,
         timeframe: '5 minutes'
-      }
+      },
+      patternSignal: patternAnalysis
     };
     
-    console.log(`Hourly: ${analysis.signal}, 1m: ${analysis.shortTermSignal.signal}, 5m: ${analysis.fiveMinSignal.signal}`);
+    console.log(`Hourly: ${analysis.signal}, 1m: ${analysis.shortTermSignal.signal}, 5m: ${analysis.fiveMinSignal.signal}, Pattern: ${analysis.patternSignal.signal}`);
     
     // Update cache
     cacheStore.data = analysis;

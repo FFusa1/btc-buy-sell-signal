@@ -26,6 +26,14 @@ interface ShortTermSignal {
   timeframe: string;
 }
 
+interface PatternSignal {
+  signal: 'BUY' | 'SELL' | 'HOLD';
+  confidence: number;
+  reason: string;
+  patterns: string[];
+  timeframe: string;
+}
+
 interface SignalData {
   currentPrice: number;
   priceChange24h: number;
@@ -37,6 +45,7 @@ interface SignalData {
   recentCandles: Kline[];
   shortTermSignal: ShortTermSignal;
   fiveMinSignal: ShortTermSignal;
+  patternSignal: PatternSignal;
 }
 
 export function useBinanceSignals(refreshInterval: number = 30000) {
