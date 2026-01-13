@@ -5,6 +5,7 @@ import { IndicatorsPanel } from '@/components/IndicatorsPanel';
 import { MiniChart } from '@/components/MiniChart';
 import { CandlestickChart5s } from '@/components/CandlestickChart5s';
 import { ShortTermSignal } from '@/components/ShortTermSignal';
+import { PatternSignal } from '@/components/PatternSignal';
 import { Loader2, AlertCircle } from 'lucide-react';
 const Index = () => {
   const {
@@ -74,6 +75,17 @@ const Index = () => {
 
             {/* 5-Second Candlestick Chart */}
             <CandlestickChart5s candles={data.recentCandles} />
+
+            {/* Candlestick Pattern Signal */}
+            {data.patternSignal && (
+              <PatternSignal 
+                signal={data.patternSignal.signal}
+                confidence={data.patternSignal.confidence}
+                reason={data.patternSignal.reason}
+                patterns={data.patternSignal.patterns}
+                timeframe={data.patternSignal.timeframe}
+              />
+            )}
 
             {/* Disclaimer */}
             
