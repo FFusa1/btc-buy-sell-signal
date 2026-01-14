@@ -34,6 +34,13 @@ interface PatternSignal {
   timeframe: string;
 }
 
+interface SupportResistance {
+  support: number[];
+  resistance: number[];
+  strongestSupport: number;
+  strongestResistance: number;
+}
+
 interface SignalData {
   currentPrice: number;
   priceChange24h: number;
@@ -48,6 +55,7 @@ interface SignalData {
   patternSignal: PatternSignal;
   fiveMinPatternSignal: PatternSignal;
   thirtySecPatternSignal: PatternSignal;
+  supportResistance: SupportResistance;
 }
 
 export function useBinanceSignals(refreshInterval: number = 30000) {
