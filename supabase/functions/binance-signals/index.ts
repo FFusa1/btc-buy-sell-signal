@@ -49,6 +49,13 @@ interface PatternSignal {
   timeframe: string;
 }
 
+interface SupportResistance {
+  support: number[];
+  resistance: number[];
+  strongestSupport: number;
+  strongestResistance: number;
+}
+
 interface AnalysisResult {
   currentPrice: number;
   priceChange24h: number;
@@ -69,6 +76,7 @@ interface AnalysisResult {
   patternSignal: PatternSignal;
   fiveMinPatternSignal: PatternSignal;
   thirtySecPatternSignal: PatternSignal;
+  supportResistance: SupportResistance;
 }
 
 // Calculate Simple Moving Average
@@ -472,6 +480,80 @@ function analyzeCandlePatterns(klines: Kline[]): PatternSignal {
   };
 }
 
+// Calculate support and resistance levels
+function calculateSupportResistance(klines: Kline[]): SupportResistance {
+  const highs = klines.map(k => k.high);
+  const lows = klines.map(k => k.low);
+  const currentPrice = klines[klines.length - 1].close;
+  
+  // Find pivot points (local highs and lows)
+  const pivotHighs: number[] = [];
+  const pivotLows: number[] = [];
+  
+  for (let i = 2; i < klines.length - 2; i++) {
+    // Pivot high: higher than 2 candles before and after
+    if (klines[i].high > klines[i-1].high && klines[i].high > klines[i-2].high &&
+        klines[i].high > klines[i+1].high && klines[i].high > klines[i+2].high) {
+      pivotHighs.push(klines[i].high);
+    }
+    // Pivot low: lower than 2 candles before and after
+    if (klines[i].low < klines[i-1].low && klines[i].low < klines[i-2].low &&
+        klines[i].low < klines[i+1].low && klines[i].low < klines[i+2].low) {
+      pivotLows.push(klines[i].low);
+    }
+  }
+  
+  // Cluster similar levels together (within 0.3% range)
+  const clusterLevels = (levels: number[]): number[] => {
+    if (levels.length === 0) return [];
+    const sorted = [...levels].sort((a, b) => a - b);
+    const clusters: number[][] = [[sorted[0]]];
+    
+    for (let i = 1; i < sorted.length; i++) {
+      const lastCluster = clusters[clusters.length - 1];
+      const lastValue = lastCluster[lastCluster.length - 1];
+      // If within 0.3% of last value, add to cluster
+      if ((sorted[i] - lastValue) / lastValue < 0.003) {
+        lastCluster.push(sorted[i]);
+      } else {
+        clusters.push([sorted[i]]);
+      }
+    }
+    
+    // Return average of each cluster, weighted by size
+    return clusters
+      .filter(c => c.length >= 1)
+      .map(c => c.reduce((sum, v) => sum + v, 0) / c.length)
+      .sort((a, b) => b - a);
+  };
+  
+  const resistanceLevels = clusterLevels(pivotHighs.filter(h => h > currentPrice)).slice(0, 3);
+  const supportLevels = clusterLevels(pivotLows.filter(l => l < currentPrice)).slice(0, 3).reverse();
+  
+  // Calculate key levels using recent price action
+  const recentHigh = Math.max(...highs.slice(-24));
+  const recentLow = Math.min(...lows.slice(-24));
+  
+  // Add recent high/low if not already in levels
+  if (!resistanceLevels.some(r => Math.abs(r - recentHigh) / recentHigh < 0.003)) {
+    if (recentHigh > currentPrice) resistanceLevels.push(recentHigh);
+  }
+  if (!supportLevels.some(s => Math.abs(s - recentLow) / recentLow < 0.003)) {
+    if (recentLow < currentPrice) supportLevels.unshift(recentLow);
+  }
+  
+  // Sort and get top levels
+  const sortedResistance = resistanceLevels.sort((a, b) => a - b).slice(0, 3);
+  const sortedSupport = supportLevels.sort((a, b) => b - a).slice(0, 3);
+  
+  return {
+    support: sortedSupport,
+    resistance: sortedResistance,
+    strongestSupport: sortedSupport[0] || recentLow,
+    strongestResistance: sortedResistance[0] || recentHigh
+  };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -569,6 +651,9 @@ serve(async (req) => {
     const thirtySecPatternAnalysis = analyzeCandlePatterns(thirtySecKlines);
     thirtySecPatternAnalysis.timeframe = '30 seconds';
     
+    // Calculate support and resistance levels
+    const supportResistance = calculateSupportResistance(hourlyKlines);
+    
     const closePrices = hourlyKlines.map(k => k.close);
     const currentPrice = closePrices[closePrices.length - 1];
     const price24hAgo = closePrices[closePrices.length - 24] || closePrices[0];
@@ -596,7 +681,8 @@ serve(async (req) => {
       },
       patternSignal: patternAnalysis,
       fiveMinPatternSignal: fiveMinPatternAnalysis,
-      thirtySecPatternSignal: thirtySecPatternAnalysis
+      thirtySecPatternSignal: thirtySecPatternAnalysis,
+      supportResistance
     };
     
     console.log(`Hourly: ${analysis.signal}, 1m: ${analysis.shortTermSignal.signal}, 5m: ${analysis.fiveMinSignal.signal}, Pattern: ${analysis.patternSignal.signal}, 5m Pattern: ${analysis.fiveMinPatternSignal.signal}, 30s Pattern: ${analysis.thirtySecPatternSignal.signal}`);

@@ -6,6 +6,7 @@ import { MiniChart } from '@/components/MiniChart';
 import { CandlestickChart5s } from '@/components/CandlestickChart5s';
 import { ShortTermSignal } from '@/components/ShortTermSignal';
 import { PatternSignal } from '@/components/PatternSignal';
+import { SupportResistancePanel } from '@/components/SupportResistancePanel';
 import { Loader2, AlertCircle } from 'lucide-react';
 const Index = () => {
   const {
@@ -53,8 +54,10 @@ const Index = () => {
       </header>
 
       {/* Main content */}
-      <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
-        {data && <>
+      <main className="max-w-7xl mx-auto px-4 py-6">
+        {data && <div className="flex gap-6">
+          {/* Left Content */}
+          <div className="flex-1 space-y-6">
             {/* Price Display - Full Width */}
             <PriceDisplay currentPrice={data.currentPrice} priceChange24h={data.priceChange24h} priceChangePercent24h={data.priceChangePercent24h} />
             
@@ -108,10 +111,23 @@ const Index = () => {
                 timeframe={data.thirtySecPatternSignal.timeframe}
               />
             )}
+          </div>
 
-            {/* Disclaimer */}
-            
-          </>}
+          {/* Right Sidebar - Support & Resistance */}
+          <div className="hidden lg:block w-80 flex-shrink-0">
+            <div className="sticky top-24">
+              {data.supportResistance && (
+                <SupportResistancePanel
+                  currentPrice={data.currentPrice}
+                  support={data.supportResistance.support}
+                  resistance={data.supportResistance.resistance}
+                  strongestSupport={data.supportResistance.strongestSupport}
+                  strongestResistance={data.supportResistance.strongestResistance}
+                />
+              )}
+            </div>
+          </div>
+        </div>}
       </main>
     </div>;
 };
