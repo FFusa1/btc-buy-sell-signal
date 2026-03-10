@@ -56,6 +56,17 @@ interface SupportResistance {
   strongestResistance: number;
 }
 
+interface PricePrediction {
+  predictedPrice: number;
+  predictedChange: number;
+  predictedChangePercent: number;
+  direction: 'UP' | 'DOWN' | 'NEUTRAL';
+  confidence: number;
+  lowEstimate: number;
+  highEstimate: number;
+  method: string;
+}
+
 interface AnalysisResult {
   currentPrice: number;
   priceChange24h: number;
@@ -77,6 +88,7 @@ interface AnalysisResult {
   fiveMinPatternSignal: PatternSignal;
   thirtySecPatternSignal: PatternSignal;
   supportResistance: SupportResistance;
+  pricePrediction: PricePrediction;
 }
 
 // Calculate Simple Moving Average
