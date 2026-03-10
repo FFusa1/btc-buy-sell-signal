@@ -7,6 +7,7 @@ import { CandlestickChart5s } from '@/components/CandlestickChart5s';
 import { ShortTermSignal } from '@/components/ShortTermSignal';
 import { PatternSignal } from '@/components/PatternSignal';
 import { SupportResistancePanel } from '@/components/SupportResistancePanel';
+import { PricePredictionPanel } from '@/components/PricePredictionPanel';
 import { Loader2, AlertCircle } from 'lucide-react';
 const Index = () => {
   const {
