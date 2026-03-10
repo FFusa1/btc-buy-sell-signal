@@ -670,6 +670,9 @@ serve(async (req) => {
     const currentPrice = closePrices[closePrices.length - 1];
     const price24hAgo = closePrices[closePrices.length - 24] || closePrices[0];
     
+    // Predict price in 1 hour
+    const pricePrediction = predictPrice1Hour(hourlyKlines, hourlyAnalysis);
+    
     const analysis: AnalysisResult = {
       currentPrice,
       priceChange24h: currentPrice - price24hAgo,
@@ -694,7 +697,8 @@ serve(async (req) => {
       patternSignal: patternAnalysis,
       fiveMinPatternSignal: fiveMinPatternAnalysis,
       thirtySecPatternSignal: thirtySecPatternAnalysis,
-      supportResistance
+      supportResistance,
+      pricePrediction
     };
     
     console.log(`Hourly: ${analysis.signal}, 1m: ${analysis.shortTermSignal.signal}, 5m: ${analysis.fiveMinSignal.signal}, Pattern: ${analysis.patternSignal.signal}, 5m Pattern: ${analysis.fiveMinPatternSignal.signal}, 30s Pattern: ${analysis.thirtySecPatternSignal.signal}`);
