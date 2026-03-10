@@ -126,6 +126,18 @@ const Index = () => {
                   strongestResistance={data.supportResistance.strongestResistance}
                 />
               )}
+              {data.pricePrediction && (
+                <PricePredictionPanel
+                  currentPrice={data.currentPrice}
+                  predictedPrice={data.pricePrediction.predictedPrice}
+                  predictedChange={data.pricePrediction.predictedChange}
+                  predictedChangePercent={data.pricePrediction.predictedChangePercent}
+                  direction={data.pricePrediction.direction}
+                  confidence={data.pricePrediction.confidence}
+                  lowEstimate={data.pricePrediction.lowEstimate}
+                  highEstimate={data.pricePrediction.highEstimate}
+                />
+              )}
             </div>
           </div>
         </div>}
