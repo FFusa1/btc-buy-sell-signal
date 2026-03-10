@@ -7,6 +7,7 @@ import { CandlestickChart5s } from '@/components/CandlestickChart5s';
 import { ShortTermSignal } from '@/components/ShortTermSignal';
 import { PatternSignal } from '@/components/PatternSignal';
 import { SupportResistancePanel } from '@/components/SupportResistancePanel';
+import { PricePredictionPanel } from '@/components/PricePredictionPanel';
 import { Loader2, AlertCircle } from 'lucide-react';
 const Index = () => {
   const {
@@ -123,6 +124,18 @@ const Index = () => {
                   resistance={data.supportResistance.resistance}
                   strongestSupport={data.supportResistance.strongestSupport}
                   strongestResistance={data.supportResistance.strongestResistance}
+                />
+              )}
+              {data.pricePrediction && (
+                <PricePredictionPanel
+                  currentPrice={data.currentPrice}
+                  predictedPrice={data.pricePrediction.predictedPrice}
+                  predictedChange={data.pricePrediction.predictedChange}
+                  predictedChangePercent={data.pricePrediction.predictedChangePercent}
+                  direction={data.pricePrediction.direction}
+                  confidence={data.pricePrediction.confidence}
+                  lowEstimate={data.pricePrediction.lowEstimate}
+                  highEstimate={data.pricePrediction.highEstimate}
                 />
               )}
             </div>

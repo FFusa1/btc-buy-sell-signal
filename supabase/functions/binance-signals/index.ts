@@ -56,6 +56,17 @@ interface SupportResistance {
   strongestResistance: number;
 }
 
+interface PricePrediction {
+  predictedPrice: number;
+  predictedChange: number;
+  predictedChangePercent: number;
+  direction: 'UP' | 'DOWN' | 'NEUTRAL';
+  confidence: number;
+  lowEstimate: number;
+  highEstimate: number;
+  method: string;
+}
+
 interface AnalysisResult {
   currentPrice: number;
   priceChange24h: number;
@@ -77,6 +88,7 @@ interface AnalysisResult {
   fiveMinPatternSignal: PatternSignal;
   thirtySecPatternSignal: PatternSignal;
   supportResistance: SupportResistance;
+  pricePrediction: PricePrediction;
 }
 
 // Calculate Simple Moving Average
@@ -554,6 +566,61 @@ function calculateSupportResistance(klines: Kline[]): SupportResistance {
   };
 }
 
+// Predict price in 1 hour using momentum, trend, and volatility
+function predictPrice1Hour(klines: Kline[], hourlyAnalysis: any): PricePrediction {
+  const closePrices = klines.map(k => k.close);
+  const currentPrice = closePrices[closePrices.length - 1];
+  
+  // Calculate average hourly change over recent candles
+  const recentChanges: number[] = [];
+  for (let i = Math.max(1, closePrices.length - 12); i < closePrices.length; i++) {
+    recentChanges.push((closePrices[i] - closePrices[i - 1]) / closePrices[i - 1]);
+  }
+  const avgChange = recentChanges.reduce((s, c) => s + c, 0) / recentChanges.length;
+  
+  // Weighted momentum: recent changes matter more
+  const weights = recentChanges.map((_, i) => i + 1);
+  const totalWeight = weights.reduce((s, w) => s + w, 0);
+  const weightedChange = recentChanges.reduce((s, c, i) => s + c * weights[i], 0) / totalWeight;
+  
+  // Volatility for confidence and range
+  const volatility = Math.sqrt(recentChanges.reduce((s, c) => s + (c - avgChange) ** 2, 0) / recentChanges.length);
+  
+  // RSI adjustment
+  const rsi = hourlyAnalysis.indicators.rsi;
+  let rsiAdjust = 0;
+  if (rsi > 70) rsiAdjust = -0.001 * ((rsi - 70) / 30); // overbought drag
+  else if (rsi < 30) rsiAdjust = 0.001 * ((30 - rsi) / 30); // oversold boost
+  
+  // Blend signals
+  const predictedChangePercent = (weightedChange * 0.6 + avgChange * 0.3 + rsiAdjust * 0.1) * 100;
+  const predictedChange = currentPrice * (predictedChangePercent / 100);
+  const predictedPrice = currentPrice + predictedChange;
+  
+  // Range estimates based on volatility
+  const rangeMultiplier = 1.5;
+  const lowEstimate = currentPrice + predictedChange - (currentPrice * volatility * rangeMultiplier);
+  const highEstimate = currentPrice + predictedChange + (currentPrice * volatility * rangeMultiplier);
+  
+  // Confidence: lower volatility = higher confidence
+  const confidence = Math.max(20, Math.min(85, 70 - (volatility * 10000)));
+  
+  const direction: 'UP' | 'DOWN' | 'NEUTRAL' = 
+    predictedChangePercent > 0.02 ? 'UP' : 
+    predictedChangePercent < -0.02 ? 'DOWN' : 'NEUTRAL';
+  
+  return {
+    predictedPrice,
+    predictedChange,
+    predictedChangePercent,
+    direction,
+    confidence: Math.round(confidence),
+    lowEstimate,
+    highEstimate,
+    method: 'Weighted momentum + RSI + volatility'
+  };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -658,6 +725,9 @@ serve(async (req) => {
     const currentPrice = closePrices[closePrices.length - 1];
     const price24hAgo = closePrices[closePrices.length - 24] || closePrices[0];
     
+    // Predict price in 1 hour
+    const pricePrediction = predictPrice1Hour(hourlyKlines, hourlyAnalysis);
+    
     const analysis: AnalysisResult = {
       currentPrice,
       priceChange24h: currentPrice - price24hAgo,
@@ -682,7 +752,8 @@ serve(async (req) => {
       patternSignal: patternAnalysis,
       fiveMinPatternSignal: fiveMinPatternAnalysis,
       thirtySecPatternSignal: thirtySecPatternAnalysis,
-      supportResistance
+      supportResistance,
+      pricePrediction
     };
     
     console.log(`Hourly: ${analysis.signal}, 1m: ${analysis.shortTermSignal.signal}, 5m: ${analysis.fiveMinSignal.signal}, Pattern: ${analysis.patternSignal.signal}, 5m Pattern: ${analysis.fiveMinPatternSignal.signal}, 30s Pattern: ${analysis.thirtySecPatternSignal.signal}`);

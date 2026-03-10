@@ -41,6 +41,17 @@ interface SupportResistance {
   strongestResistance: number;
 }
 
+interface PricePrediction {
+  predictedPrice: number;
+  predictedChange: number;
+  predictedChangePercent: number;
+  direction: 'UP' | 'DOWN' | 'NEUTRAL';
+  confidence: number;
+  lowEstimate: number;
+  highEstimate: number;
+  method: string;
+}
+
 interface SignalData {
   currentPrice: number;
   priceChange24h: number;
@@ -56,6 +67,7 @@ interface SignalData {
   fiveMinPatternSignal: PatternSignal;
   thirtySecPatternSignal: PatternSignal;
   supportResistance: SupportResistance;
+  pricePrediction: PricePrediction;
 }
 
 export function useBinanceSignals(refreshInterval: number = 30000) {
