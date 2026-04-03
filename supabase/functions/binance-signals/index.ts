@@ -639,10 +639,11 @@ serve(async (req) => {
     console.log('Fetching Binance BTCUSDT data...');
     
     // Fetch all klines in parallel with retry logic
-    const [hourlyResponse, minuteResponse, fiveMinResponse, oneSecResponse] = await Promise.all([
+    const [hourlyResponse, minuteResponse, fiveMinResponse, thirtyMinResponse, oneSecResponse] = await Promise.all([
       fetchWithRetry('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=100'),
       fetchWithRetry('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=30'),
       fetchWithRetry('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=5m&limit=30'),
+      fetchWithRetry('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=30m&limit=30'),
       fetchWithRetry('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1s&limit=300')
     ]);
     
