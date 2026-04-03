@@ -656,6 +656,9 @@ serve(async (req) => {
     if (!fiveMinResponse.ok) {
       throw new Error(`Binance API error (5min): ${fiveMinResponse.status}`);
     }
+    if (!thirtyMinResponse.ok) {
+      throw new Error(`Binance API error (30min): ${thirtyMinResponse.status}`);
+    }
     if (!oneSecResponse.ok) {
       throw new Error(`Binance API error (1s): ${oneSecResponse.status}`);
     }
@@ -663,6 +666,7 @@ serve(async (req) => {
     const rawHourlyKlines = await hourlyResponse.json();
     const rawMinuteKlines = await minuteResponse.json();
     const rawFiveMinKlines = await fiveMinResponse.json();
+    const rawThirtyMinKlines = await thirtyMinResponse.json();
     const rawOneSecKlines = await oneSecResponse.json();
     
     const parseKlines = (raw: any[]): Kline[] => raw.map((k: any[]) => ({
