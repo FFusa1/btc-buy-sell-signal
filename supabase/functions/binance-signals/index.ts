@@ -682,6 +682,7 @@ serve(async (req) => {
     const hourlyKlines = parseKlines(rawHourlyKlines);
     const minuteKlines = parseKlines(rawMinuteKlines);
     const fiveMinKlines = parseKlines(rawFiveMinKlines);
+    const thirtyMinKlines = parseKlines(rawThirtyMinKlines);
     const oneSecKlines = parseKlines(rawOneSecKlines);
     
     // Aggregate 1-second candles into 30-second candles
