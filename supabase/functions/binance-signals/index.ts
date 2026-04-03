@@ -85,6 +85,7 @@ interface AnalysisResult {
   shortTermSignal: ShortTermSignal;
   fiveMinSignal: ShortTermSignal;
   patternSignal: PatternSignal;
+  thirtyMinPatternSignal: PatternSignal;
   fiveMinPatternSignal: PatternSignal;
   thirtySecPatternSignal: PatternSignal;
   supportResistance: SupportResistance;
@@ -638,10 +639,11 @@ serve(async (req) => {
     console.log('Fetching Binance BTCUSDT data...');
     
     // Fetch all klines in parallel with retry logic
-    const [hourlyResponse, minuteResponse, fiveMinResponse, oneSecResponse] = await Promise.all([
+    const [hourlyResponse, minuteResponse, fiveMinResponse, thirtyMinResponse, oneSecResponse] = await Promise.all([
       fetchWithRetry('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=100'),
       fetchWithRetry('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=30'),
       fetchWithRetry('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=5m&limit=30'),
+      fetchWithRetry('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=30m&limit=30'),
       fetchWithRetry('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1s&limit=300')
     ]);
     
@@ -654,6 +656,9 @@ serve(async (req) => {
     if (!fiveMinResponse.ok) {
       throw new Error(`Binance API error (5min): ${fiveMinResponse.status}`);
     }
+    if (!thirtyMinResponse.ok) {
+      throw new Error(`Binance API error (30min): ${thirtyMinResponse.status}`);
+    }
     if (!oneSecResponse.ok) {
       throw new Error(`Binance API error (1s): ${oneSecResponse.status}`);
     }
@@ -661,6 +666,7 @@ serve(async (req) => {
     const rawHourlyKlines = await hourlyResponse.json();
     const rawMinuteKlines = await minuteResponse.json();
     const rawFiveMinKlines = await fiveMinResponse.json();
+    const rawThirtyMinKlines = await thirtyMinResponse.json();
     const rawOneSecKlines = await oneSecResponse.json();
     
     const parseKlines = (raw: any[]): Kline[] => raw.map((k: any[]) => ({
@@ -676,6 +682,7 @@ serve(async (req) => {
     const hourlyKlines = parseKlines(rawHourlyKlines);
     const minuteKlines = parseKlines(rawMinuteKlines);
     const fiveMinKlines = parseKlines(rawFiveMinKlines);
+    const thirtyMinKlines = parseKlines(rawThirtyMinKlines);
     const oneSecKlines = parseKlines(rawOneSecKlines);
     
     // Aggregate 1-second candles into 30-second candles
@@ -709,6 +716,10 @@ serve(async (req) => {
     // Analyze candlestick patterns (hourly)
     const patternAnalysis = analyzeCandlePatterns(hourlyKlines);
     patternAnalysis.timeframe = '1 hour';
+    
+    // Analyze candlestick patterns (30-minute)
+    const thirtyMinPatternAnalysis = analyzeCandlePatterns(thirtyMinKlines);
+    thirtyMinPatternAnalysis.timeframe = '30 minutes';
     
     // Analyze candlestick patterns (5-minute)
     const fiveMinPatternAnalysis = analyzeCandlePatterns(fiveMinKlines);
@@ -750,13 +761,14 @@ serve(async (req) => {
         timeframe: '5 minutes'
       },
       patternSignal: patternAnalysis,
+      thirtyMinPatternSignal: thirtyMinPatternAnalysis,
       fiveMinPatternSignal: fiveMinPatternAnalysis,
       thirtySecPatternSignal: thirtySecPatternAnalysis,
       supportResistance,
       pricePrediction
     };
     
-    console.log(`Hourly: ${analysis.signal}, 1m: ${analysis.shortTermSignal.signal}, 5m: ${analysis.fiveMinSignal.signal}, Pattern: ${analysis.patternSignal.signal}, 5m Pattern: ${analysis.fiveMinPatternSignal.signal}, 30s Pattern: ${analysis.thirtySecPatternSignal.signal}`);
+    console.log(`Hourly: ${analysis.signal}, 1m: ${analysis.shortTermSignal.signal}, 5m: ${analysis.fiveMinSignal.signal}, Pattern: ${analysis.patternSignal.signal}, 30m Pattern: ${analysis.thirtyMinPatternSignal.signal}, 5m Pattern: ${analysis.fiveMinPatternSignal.signal}, 30s Pattern: ${analysis.thirtySecPatternSignal.signal}`);
     
     // Update cache
     cacheStore.data = analysis;

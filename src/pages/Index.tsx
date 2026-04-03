@@ -80,7 +80,7 @@ const Index = () => {
             {/* 5-Second Candlestick Chart */}
             <CandlestickChart5s candles={data.recentCandles} />
 
-            {/* Candlestick Pattern Signals */}
+            {/* Candlestick Pattern Signals - 1 Hour & 30 Min */}
             <div className="grid md:grid-cols-2 gap-6">
               {data.patternSignal && (
                 <PatternSignal 
@@ -91,6 +91,19 @@ const Index = () => {
                   timeframe={data.patternSignal.timeframe}
                 />
               )}
+              {data.thirtyMinPatternSignal && (
+                <PatternSignal 
+                  signal={data.thirtyMinPatternSignal.signal}
+                  confidence={data.thirtyMinPatternSignal.confidence}
+                  reason={data.thirtyMinPatternSignal.reason}
+                  patterns={data.thirtyMinPatternSignal.patterns}
+                  timeframe={data.thirtyMinPatternSignal.timeframe}
+                />
+              )}
+            </div>
+
+            {/* Candlestick Pattern Signals - 5 Min & 30 Sec */}
+            <div className="grid md:grid-cols-2 gap-6">
               {data.fiveMinPatternSignal && (
                 <PatternSignal 
                   signal={data.fiveMinPatternSignal.signal}
@@ -100,18 +113,16 @@ const Index = () => {
                   timeframe={data.fiveMinPatternSignal.timeframe}
                 />
               )}
+              {data.thirtySecPatternSignal && (
+                <PatternSignal 
+                  signal={data.thirtySecPatternSignal.signal}
+                  confidence={data.thirtySecPatternSignal.confidence}
+                  reason={data.thirtySecPatternSignal.reason}
+                  patterns={data.thirtySecPatternSignal.patterns}
+                  timeframe={data.thirtySecPatternSignal.timeframe}
+                />
+              )}
             </div>
-
-            {/* 30-Second Pattern Signal */}
-            {data.thirtySecPatternSignal && (
-              <PatternSignal 
-                signal={data.thirtySecPatternSignal.signal}
-                confidence={data.thirtySecPatternSignal.confidence}
-                reason={data.thirtySecPatternSignal.reason}
-                patterns={data.thirtySecPatternSignal.patterns}
-                timeframe={data.thirtySecPatternSignal.timeframe}
-              />
-            )}
           </div>
 
           {/* Right Sidebar - Support & Resistance */}
