@@ -64,6 +64,7 @@ interface SignalData {
   shortTermSignal: ShortTermSignal;
   fiveMinSignal: ShortTermSignal;
   patternSignal: PatternSignal;
+  thirtyMinPatternSignal: PatternSignal;
   fiveMinPatternSignal: PatternSignal;
   thirtySecPatternSignal: PatternSignal;
   supportResistance: SupportResistance;

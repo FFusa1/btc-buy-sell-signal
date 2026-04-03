@@ -768,7 +768,7 @@ serve(async (req) => {
       pricePrediction
     };
     
-    console.log(`Hourly: ${analysis.signal}, 1m: ${analysis.shortTermSignal.signal}, 5m: ${analysis.fiveMinSignal.signal}, Pattern: ${analysis.patternSignal.signal}, 5m Pattern: ${analysis.fiveMinPatternSignal.signal}, 30s Pattern: ${analysis.thirtySecPatternSignal.signal}`);
+    console.log(`Hourly: ${analysis.signal}, 1m: ${analysis.shortTermSignal.signal}, 5m: ${analysis.fiveMinSignal.signal}, Pattern: ${analysis.patternSignal.signal}, 30m Pattern: ${analysis.thirtyMinPatternSignal.signal}, 5m Pattern: ${analysis.fiveMinPatternSignal.signal}, 30s Pattern: ${analysis.thirtySecPatternSignal.signal}`);
     
     // Update cache
     cacheStore.data = analysis;
