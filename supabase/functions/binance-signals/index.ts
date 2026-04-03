@@ -761,6 +761,7 @@ serve(async (req) => {
         timeframe: '5 minutes'
       },
       patternSignal: patternAnalysis,
+      thirtyMinPatternSignal: thirtyMinPatternAnalysis,
       fiveMinPatternSignal: fiveMinPatternAnalysis,
       thirtySecPatternSignal: thirtySecPatternAnalysis,
       supportResistance,
