@@ -717,6 +717,10 @@ serve(async (req) => {
     const patternAnalysis = analyzeCandlePatterns(hourlyKlines);
     patternAnalysis.timeframe = '1 hour';
     
+    // Analyze candlestick patterns (30-minute)
+    const thirtyMinPatternAnalysis = analyzeCandlePatterns(thirtyMinKlines);
+    thirtyMinPatternAnalysis.timeframe = '30 minutes';
+    
     // Analyze candlestick patterns (5-minute)
     const fiveMinPatternAnalysis = analyzeCandlePatterns(fiveMinKlines);
     fiveMinPatternAnalysis.timeframe = '5 minutes';
