@@ -62,6 +62,33 @@ const Index = () => {
             {/* Price Display - Full Width */}
             <PriceDisplay currentPrice={data.currentPrice} priceChange24h={data.priceChange24h} priceChangePercent24h={data.priceChangePercent24h} />
             
+            {/* 100% Buy Signal */}
+            {data.confidence === 100 && data.signal === 'BUY' ? (
+              <div className="rounded-2xl border-2 border-emerald-500 bg-emerald-500/20 backdrop-blur-sm p-4 animate-pulse">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-emerald-500/30 flex items-center justify-center">
+                    <TrendingUp className="w-6 h-6 text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-lg font-bold text-emerald-400">🚀 100% BUY SIGNAL</p>
+                    <p className="text-sm text-emerald-300/80">All indicators confirm — maximum confidence to buy</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-border/30 bg-card/30 backdrop-blur-sm p-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-muted/30 flex items-center justify-center">
+                    <AlertCircle className="w-5 h-5 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Waiting for 100% Buy Signal...</p>
+                    <p className="text-xs text-muted-foreground/70">Current confidence: {data.confidence}% ({data.signal})</p>
+                  </div>
+                </div>
+              </div>
+            )}
+            
             {/* Hourly Signal with 1% Growth Indicator */}
             <TradingSignal signal={data.signal} confidence={data.confidence} reason={data.reason} onRefresh={refetch} isRefreshing={loading} showGrowthIndicator currentPrice={data.currentPrice} />
 
