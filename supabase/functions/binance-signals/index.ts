@@ -9,19 +9,44 @@ const corsHeaders = {
 const cacheStore: { data: unknown | null; timestamp: number } = { data: null, timestamp: 0 };
 const CACHE_TTL_MS = 2000; // Cache for 2 seconds
 
-// Fetch with retry logic for rate limiting
+// Mirror hosts to try in order. data-api.binance.vision is the public market-data
+// mirror and is not geo-restricted (api.binance.com returns 451 from many regions
+// including Supabase edge runtime).
+const BINANCE_HOSTS = [
+  'https://data-api.binance.vision',
+  'https://api.binance.com',
+  'https://api1.binance.com',
+  'https://api2.binance.com',
+  'https://api3.binance.com',
+];
+
+// Fetch with retry logic for rate limiting + host failover for 451/418/403
 async function fetchWithRetry(url: string, retries = 3, delay = 500): Promise<Response> {
+  // Build candidate URLs by swapping the host
+  const path = url.replace(/^https?:\/\/[^/]+/, '');
+  const candidates = BINANCE_HOSTS.map(h => h + path);
+
+  let lastResponse: Response | null = null;
   for (let i = 0; i < retries; i++) {
-    const response = await fetch(url);
-    if (response.status === 429) {
-      console.log(`Rate limited, waiting ${delay}ms before retry ${i + 1}/${retries}`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      delay *= 2; // Exponential backoff
-      continue;
+    for (const candidate of candidates) {
+      const response = await fetch(candidate);
+      if (response.status === 429) {
+        console.log(`Rate limited on ${candidate}, backing off ${delay}ms`);
+        lastResponse = response;
+        await new Promise(r => setTimeout(r, delay));
+        delay *= 2;
+        continue;
+      }
+      if (response.status === 451 || response.status === 403 || response.status === 418) {
+        console.log(`Host blocked (${response.status}) at ${candidate}, trying next host`);
+        lastResponse = response;
+        continue;
+      }
+      return response;
     }
-    return response;
   }
-  throw new Error('Rate limited by Binance API. Please wait a moment and try again.');
+  if (lastResponse) return lastResponse;
+  throw new Error('Binance API unreachable from all mirrors.');
 }
 
 interface Kline {
