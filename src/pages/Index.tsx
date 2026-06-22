@@ -82,8 +82,8 @@ const Index = () => {
                     <AlertCircle className="w-5 h-5 text-muted-foreground" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Waiting for 100% Buy Signal...</p>
-                    <p className="text-xs text-muted-foreground/70">Current confidence: {data.confidence}% ({data.signal})</p>
+                    <p className="text-sm font-medium text-white">Waiting for 100% Buy Signal...</p>
+                    <p className="text-xs text-white/70">Current confidence: {data.confidence}% ({data.signal})</p>
                   </div>
                 </div>
               </div>
