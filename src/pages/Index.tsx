@@ -64,6 +64,18 @@ const Index = () => {
             {/* Price Display - Full Width */}
             <PriceDisplay currentPrice={data.currentPrice} priceChange24h={data.priceChange24h} priceChangePercent24h={data.priceChangePercent24h} />
 
+            {/* Live indicators visualization (under price) */}
+            {data.indicators && (
+              <IndicatorStrip
+                sma7={data.indicators.sma7}
+                sma25={data.indicators.sma25}
+                rsi={data.indicators.rsi}
+                momentum={data.indicators.momentum}
+                trend={data.indicators.trend}
+              />
+            )}
+
+
             {/* Master Bot Signal — multi-timeframe confluence for automated execution */}
             {data.masterSignal && (
               <MasterSignal
