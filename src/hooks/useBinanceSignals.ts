@@ -69,6 +69,15 @@ interface SignalData {
   thirtySecPatternSignal: PatternSignal;
   supportResistance: SupportResistance;
   pricePrediction: PricePrediction;
+  masterSignal: {
+    signal: 'BUY' | 'SELL' | 'HOLD';
+    confidence: number;
+    actionable: boolean;
+    threshold: number;
+    agreement: number;
+    votes: { source: string; signal: string; weight: number }[];
+    reason: string;
+  };
 }
 
 export function useBinanceSignals(refreshInterval: number = 30000) {

@@ -8,6 +8,7 @@ import { ShortTermSignal } from '@/components/ShortTermSignal';
 import { PatternSignal } from '@/components/PatternSignal';
 import { SupportResistancePanel } from '@/components/SupportResistancePanel';
 import { PricePredictionPanel } from '@/components/PricePredictionPanel';
+import { MasterSignal } from '@/components/MasterSignal';
 import { Loader2, AlertCircle, TrendingUp } from 'lucide-react';
 const Index = () => {
   const {
@@ -61,6 +62,20 @@ const Index = () => {
           <div className="flex-1 space-y-6">
             {/* Price Display - Full Width */}
             <PriceDisplay currentPrice={data.currentPrice} priceChange24h={data.priceChange24h} priceChangePercent24h={data.priceChangePercent24h} />
+
+            {/* Master Bot Signal — multi-timeframe confluence for automated execution */}
+            {data.masterSignal && (
+              <MasterSignal
+                signal={data.masterSignal.signal}
+                confidence={data.masterSignal.confidence}
+                actionable={data.masterSignal.actionable}
+                threshold={data.masterSignal.threshold}
+                agreement={data.masterSignal.agreement}
+                votes={data.masterSignal.votes}
+                reason={data.masterSignal.reason}
+              />
+            )}
+
             
             {/* 100% Buy Signal */}
             {data.confidence === 100 && data.signal === 'BUY' ? (
