@@ -8,6 +8,7 @@ import { ShortTermSignal } from '@/components/ShortTermSignal';
 import { PatternSignal } from '@/components/PatternSignal';
 import { SupportResistancePanel } from '@/components/SupportResistancePanel';
 import { PricePredictionPanel } from '@/components/PricePredictionPanel';
+import { MasterSignal } from '@/components/MasterSignal';
 import { Loader2, AlertCircle, TrendingUp } from 'lucide-react';
 const Index = () => {
   const {
