@@ -115,6 +115,15 @@ interface AnalysisResult {
   thirtySecPatternSignal: PatternSignal;
   supportResistance: SupportResistance;
   pricePrediction: PricePrediction;
+  masterSignal: {
+    signal: 'BUY' | 'SELL' | 'HOLD';
+    confidence: number;
+    actionable: boolean;
+    threshold: number;
+    agreement: number;
+    votes: { source: string; signal: string; weight: number }[];
+    reason: string;
+  };
 }
 
 // Calculate Simple Moving Average
