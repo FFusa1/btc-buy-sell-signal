@@ -17,6 +17,30 @@ interface MasterSignalProps {
   reason: string;
 }
 
+const palette = {
+  BUY: {
+    border: 'border-emerald-500',
+    bg: 'bg-emerald-500/15',
+    shadow: 'shadow-lg shadow-emerald-500/20',
+    iconBg: 'bg-emerald-500/20',
+    text: 'text-emerald-400',
+  },
+  SELL: {
+    border: 'border-rose-500',
+    bg: 'bg-rose-500/15',
+    shadow: 'shadow-lg shadow-rose-500/20',
+    iconBg: 'bg-rose-500/20',
+    text: 'text-rose-400',
+  },
+  HOLD: {
+    border: 'border-border/40',
+    bg: 'bg-card/40',
+    shadow: '',
+    iconBg: 'bg-amber-500/20',
+    text: 'text-amber-400',
+  },
+} as const;
+
 export function MasterSignal({
   signal,
   confidence,
@@ -26,22 +50,14 @@ export function MasterSignal({
   votes,
   reason,
 }: MasterSignalProps) {
-  const color =
-    signal === 'BUY'
-      ? 'emerald'
-      : signal === 'SELL'
-      ? 'rose'
-      : 'amber';
-
+  const p = palette[signal];
   const Icon = signal === 'BUY' ? ArrowUp : signal === 'SELL' ? ArrowDown : ShieldAlert;
 
   return (
     <div
       className={cn(
         'rounded-2xl border-2 p-6 backdrop-blur-sm transition-all',
-        actionable
-          ? `border-${color}-500 bg-${color}-500/15 shadow-lg shadow-${color}-500/20`
-          : 'border-border/40 bg-card/40'
+        actionable ? `${p.border} ${p.bg} ${p.shadow}` : 'border-border/40 bg-card/40'
       )}
     >
       <div className="flex items-center justify-between mb-4">
@@ -54,9 +70,7 @@ export function MasterSignal({
         <div
           className={cn(
             'flex items-center gap-1.5 text-xs px-2 py-1 rounded-md font-semibold',
-            actionable
-              ? 'bg-emerald-500/20 text-emerald-300'
-              : 'bg-white/10 text-white/70'
+            actionable ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/10 text-white/70'
           )}
         >
           {actionable ? (
@@ -72,16 +86,11 @@ export function MasterSignal({
       </div>
 
       <div className="flex items-center gap-4">
-        <div
-          className={cn(
-            'w-16 h-16 rounded-xl flex items-center justify-center',
-            `bg-${color}-500/20`
-          )}
-        >
-          <Icon className={cn('w-8 h-8', `text-${color}-400`)} />
+        <div className={cn('w-16 h-16 rounded-xl flex items-center justify-center', p.iconBg)}>
+          <Icon className={cn('w-8 h-8', p.text)} />
         </div>
         <div>
-          <div className={cn('text-4xl font-bold', `text-${color}-400`)}>
+          <div className={cn('text-4xl font-bold', p.text)}>
             {actionable ? signal : 'HOLD'}
           </div>
           <div className="text-sm text-white/70 mt-1">
@@ -111,14 +120,14 @@ export function MasterSignal({
                   : 'text-amber-400'
               )}
             >
-              {v.signal} ·w{v.weight}
+              {v.signal} · w{v.weight}
             </div>
           </div>
         ))}
       </div>
 
       <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between text-xs text-white/60">
-        <span>Bot threshold: ≥ {threshold}% conf & ≥ 75% agreement</span>
+        <span>Bot rule: ≥ {threshold}% conf & ≥ 75% agreement</span>
         <span className={actionable ? 'text-emerald-400' : 'text-amber-400'}>
           {actionable ? 'Conditions met' : 'Waiting for confluence'}
         </span>
