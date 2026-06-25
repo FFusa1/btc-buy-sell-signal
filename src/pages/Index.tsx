@@ -10,8 +10,11 @@ import { SupportResistancePanel } from '@/components/SupportResistancePanel';
 import { PricePredictionPanel } from '@/components/PricePredictionPanel';
 import { MasterSignal } from '@/components/MasterSignal';
 import { IndicatorStrip } from '@/components/IndicatorStrip';
-import { Loader2, AlertCircle, TrendingUp } from 'lucide-react';
+import { BotPanel } from '@/components/BotPanel';
+import { Loader2, AlertCircle, TrendingUp, Bot } from 'lucide-react';
+import { useState } from 'react';
 const Index = () => {
+  const [botOpen, setBotOpen] = useState(false);
   const {
     data,
     loading,
@@ -47,12 +50,20 @@ const Index = () => {
             <h1 className="text-xl font-bold text-foreground">BTC Trading Signals</h1>
             <p className="text-xs text-muted-foreground">Binance • Real-time analysis</p>
           </div>
-          {lastUpdated && <div className="text-right">
-              <p className="text-xs text-muted-foreground">Last updated</p>
-              <p className="text-sm font-medium text-foreground">
-                {lastUpdated.toLocaleTimeString()}
-              </p>
-            </div>}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setBotOpen(true)}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-yellow-500 hover:bg-yellow-400 text-black text-sm font-bold transition-colors"
+            >
+              <Bot className="w-4 h-4" /> Bot
+            </button>
+            {lastUpdated && <div className="text-right">
+                <p className="text-xs text-muted-foreground">Last updated</p>
+                <p className="text-sm font-medium text-foreground">
+                  {lastUpdated.toLocaleTimeString()}
+                </p>
+              </div>}
+          </div>
         </div>
       </header>
 
@@ -208,6 +219,12 @@ const Index = () => {
           </div>
         </div>}
       </main>
+      <BotPanel
+        open={botOpen}
+        onClose={() => setBotOpen(false)}
+        masterSignal={data?.masterSignal}
+        currentPrice={data?.currentPrice ?? 0}
+      />
     </div>;
 };
 export default Index;
