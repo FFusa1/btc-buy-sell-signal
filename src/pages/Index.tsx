@@ -219,6 +219,12 @@ const Index = () => {
           </div>
         </div>}
       </main>
+      <BotPanel
+        open={botOpen}
+        onClose={() => setBotOpen(false)}
+        masterSignal={data?.masterSignal}
+        currentPrice={data?.currentPrice ?? 0}
+      />
     </div>;
 };
 export default Index;
