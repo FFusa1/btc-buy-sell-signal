@@ -29,6 +29,8 @@ export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanel
   const [position, setPosition] = useState<Position>('FLAT');
   const [log, setLog] = useState<LogEntry[]>([]);
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<'testnet' | 'live'>(() => (localStorage.getItem('bot_mode') as any) || 'testnet');
+  const [confirmLive, setConfirmLive] = useState(false);
   const lastSigRef = useRef<string>('');
 
   const addLog = (kind: LogEntry['kind'], msg: string) =>
@@ -36,7 +38,7 @@ export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanel
 
   const callTrade = async (action: 'balance' | 'buy' | 'sell', extra: Record<string, any> = {}) => {
     const { data, error } = await supabase.functions.invoke('binance-trade', {
-      body: { action, ...extra },
+      body: { action, mode, ...extra },
     });
     if (error) throw new Error(error.message);
     if (!data?.ok) throw new Error(data?.error || 'Unknown error');
@@ -57,7 +59,9 @@ export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanel
   useEffect(() => {
     if (open) refreshBalance();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, mode]);
+
+  useEffect(() => { localStorage.setItem('bot_mode', mode); }, [mode]);
 
   // Bot loop — react to actionable master signal
   useEffect(() => {
@@ -110,19 +114,47 @@ export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanel
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[#0b0f17] shadow-2xl overflow-hidden">
-        {/* Header — looks like a "Binance window" */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 bg-gradient-to-r from-yellow-500/10 to-transparent">
+      <div className={cn(
+        "w-full max-w-2xl rounded-2xl border shadow-2xl overflow-hidden bg-[#0b0f17]",
+        mode === 'live' ? 'border-rose-500/40' : 'border-white/10'
+      )}>
+        {/* Header */}
+        <div className={cn(
+          "flex items-center justify-between px-5 py-4 border-b border-white/10",
+          mode === 'live'
+            ? 'bg-gradient-to-r from-rose-500/15 to-transparent'
+            : 'bg-gradient-to-r from-yellow-500/10 to-transparent'
+        )}>
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-yellow-500/20 flex items-center justify-center">
-              <Bot className="w-5 h-5 text-yellow-400" />
+            <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center",
+              mode === 'live' ? 'bg-rose-500/20' : 'bg-yellow-500/20')}>
+              <Bot className={cn("w-5 h-5", mode === 'live' ? 'text-rose-400' : 'text-yellow-400')} />
             </div>
             <div>
               <div className="text-sm font-bold text-white">Binance Spot — Auto Trader</div>
-              <div className="text-[11px] text-yellow-400/80">TESTNET • BTC/USDT</div>
+              <div className={cn("text-[11px]", mode === 'live' ? 'text-rose-400' : 'text-yellow-400/80')}>
+                {mode === 'live' ? 'LIVE • REAL FUNDS' : 'TESTNET'} • BTC/USDT
+              </div>
             </div>
           </div>
-          <button onClick={onClose} className="text-white/60 hover:text-white text-xl leading-none px-2">×</button>
+          <div className="flex items-center gap-3">
+            {/* Mode toggle */}
+            <div className="flex items-center rounded-lg bg-white/5 border border-white/10 p-0.5 text-[11px] font-bold">
+              <button
+                onClick={() => { if (running) return; setMode('testnet'); setConfirmLive(false); lastSigRef.current=''; }}
+                disabled={running}
+                className={cn('px-2.5 py-1 rounded-md transition-colors',
+                  mode === 'testnet' ? 'bg-yellow-500 text-black' : 'text-white/60 hover:text-white')}
+              >TESTNET</button>
+              <button
+                onClick={() => { if (running) return; setMode('live'); lastSigRef.current=''; }}
+                disabled={running}
+                className={cn('px-2.5 py-1 rounded-md transition-colors',
+                  mode === 'live' ? 'bg-rose-500 text-white' : 'text-white/60 hover:text-white')}
+              >LIVE</button>
+            </div>
+            <button onClick={onClose} className="text-white/60 hover:text-white text-xl leading-none px-2">×</button>
+          </div>
         </div>
 
         {/* Status row */}
@@ -141,12 +173,28 @@ export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanel
           </div>
         </div>
 
+        {/* Live confirmation banner */}
+        {mode === 'live' && !running && (
+          <div className="px-5 py-3 border-b border-rose-500/30 bg-rose-500/10 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-400 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <div className="text-xs font-bold text-rose-300">LIVE MODE — REAL MONEY</div>
+              <div className="text-[11px] text-rose-200/80">Bot will place real market BUY/SELL orders on your Binance account using the saved API key. Start with a small order size.</div>
+            </div>
+            <label className="flex items-center gap-1.5 text-[11px] text-white/80 cursor-pointer">
+              <input type="checkbox" checked={confirmLive} onChange={(e) => setConfirmLive(e.target.checked)} />
+              I understand
+            </label>
+          </div>
+        )}
+
         {/* Controls — Start at top */}
         <div className="px-5 py-4 flex items-center gap-3 border-b border-white/10">
           {!running ? (
             <button
-              onClick={() => { setRunning(true); lastSigRef.current = ''; addLog('info', 'Bot started — waiting for actionable master signal'); }}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-bold"
+              onClick={() => { setRunning(true); lastSigRef.current = ''; addLog('info', `Bot started [${mode.toUpperCase()}] — waiting for actionable master signal`); }}
+              disabled={mode === 'live' && !confirmLive}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:bg-white/10 disabled:text-white/40 disabled:cursor-not-allowed text-black font-bold"
             >
               <Play className="w-4 h-4" /> START
             </button>
@@ -210,8 +258,12 @@ export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanel
           )}
         </div>
 
-        <div className="px-5 py-2 border-t border-white/10 text-[10px] text-amber-400/80 flex items-center gap-1">
-          <AlertTriangle className="w-3 h-3" /> Testnet only. No real funds. Verify before going live.
+        <div className={cn("px-5 py-2 border-t border-white/10 text-[10px] flex items-center gap-1",
+          mode === 'live' ? 'text-rose-400' : 'text-amber-400/80')}>
+          <AlertTriangle className="w-3 h-3" />
+          {mode === 'live'
+            ? 'LIVE: real orders on your Binance account. Monitor closely.'
+            : 'Testnet only. No real funds. Verify before going live.'}
         </div>
       </div>
     </div>
