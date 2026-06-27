@@ -173,12 +173,28 @@ export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanel
           </div>
         </div>
 
+        {/* Live confirmation banner */}
+        {mode === 'live' && !running && (
+          <div className="px-5 py-3 border-b border-rose-500/30 bg-rose-500/10 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-400 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <div className="text-xs font-bold text-rose-300">LIVE MODE — REAL MONEY</div>
+              <div className="text-[11px] text-rose-200/80">Bot will place real market BUY/SELL orders on your Binance account using the saved API key. Start with a small order size.</div>
+            </div>
+            <label className="flex items-center gap-1.5 text-[11px] text-white/80 cursor-pointer">
+              <input type="checkbox" checked={confirmLive} onChange={(e) => setConfirmLive(e.target.checked)} />
+              I understand
+            </label>
+          </div>
+        )}
+
         {/* Controls — Start at top */}
         <div className="px-5 py-4 flex items-center gap-3 border-b border-white/10">
           {!running ? (
             <button
-              onClick={() => { setRunning(true); lastSigRef.current = ''; addLog('info', 'Bot started — waiting for actionable master signal'); }}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-bold"
+              onClick={() => { setRunning(true); lastSigRef.current = ''; addLog('info', `Bot started [${mode.toUpperCase()}] — waiting for actionable master signal`); }}
+              disabled={mode === 'live' && !confirmLive}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:bg-white/10 disabled:text-white/40 disabled:cursor-not-allowed text-black font-bold"
             >
               <Play className="w-4 h-4" /> START
             </button>
