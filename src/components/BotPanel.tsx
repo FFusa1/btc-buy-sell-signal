@@ -114,19 +114,47 @@ export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanel
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[#0b0f17] shadow-2xl overflow-hidden">
-        {/* Header — looks like a "Binance window" */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 bg-gradient-to-r from-yellow-500/10 to-transparent">
+      <div className={cn(
+        "w-full max-w-2xl rounded-2xl border shadow-2xl overflow-hidden bg-[#0b0f17]",
+        mode === 'live' ? 'border-rose-500/40' : 'border-white/10'
+      )}>
+        {/* Header */}
+        <div className={cn(
+          "flex items-center justify-between px-5 py-4 border-b border-white/10",
+          mode === 'live'
+            ? 'bg-gradient-to-r from-rose-500/15 to-transparent'
+            : 'bg-gradient-to-r from-yellow-500/10 to-transparent'
+        )}>
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-yellow-500/20 flex items-center justify-center">
-              <Bot className="w-5 h-5 text-yellow-400" />
+            <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center",
+              mode === 'live' ? 'bg-rose-500/20' : 'bg-yellow-500/20')}>
+              <Bot className={cn("w-5 h-5", mode === 'live' ? 'text-rose-400' : 'text-yellow-400')} />
             </div>
             <div>
               <div className="text-sm font-bold text-white">Binance Spot — Auto Trader</div>
-              <div className="text-[11px] text-yellow-400/80">TESTNET • BTC/USDT</div>
+              <div className={cn("text-[11px]", mode === 'live' ? 'text-rose-400' : 'text-yellow-400/80')}>
+                {mode === 'live' ? 'LIVE • REAL FUNDS' : 'TESTNET'} • BTC/USDT
+              </div>
             </div>
           </div>
-          <button onClick={onClose} className="text-white/60 hover:text-white text-xl leading-none px-2">×</button>
+          <div className="flex items-center gap-3">
+            {/* Mode toggle */}
+            <div className="flex items-center rounded-lg bg-white/5 border border-white/10 p-0.5 text-[11px] font-bold">
+              <button
+                onClick={() => { if (running) return; setMode('testnet'); setConfirmLive(false); lastSigRef.current=''; }}
+                disabled={running}
+                className={cn('px-2.5 py-1 rounded-md transition-colors',
+                  mode === 'testnet' ? 'bg-yellow-500 text-black' : 'text-white/60 hover:text-white')}
+              >TESTNET</button>
+              <button
+                onClick={() => { if (running) return; setMode('live'); lastSigRef.current=''; }}
+                disabled={running}
+                className={cn('px-2.5 py-1 rounded-md transition-colors',
+                  mode === 'live' ? 'bg-rose-500 text-white' : 'text-white/60 hover:text-white')}
+              >LIVE</button>
+            </div>
+            <button onClick={onClose} className="text-white/60 hover:text-white text-xl leading-none px-2">×</button>
+          </div>
         </div>
 
         {/* Status row */}
