@@ -59,7 +59,9 @@ export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanel
   useEffect(() => {
     if (open) refreshBalance();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, mode]);
+
+  useEffect(() => { localStorage.setItem('bot_mode', mode); }, [mode]);
 
   // Bot loop — react to actionable master signal
   useEffect(() => {
