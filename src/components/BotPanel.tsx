@@ -258,8 +258,12 @@ export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanel
           )}
         </div>
 
-        <div className="px-5 py-2 border-t border-white/10 text-[10px] text-amber-400/80 flex items-center gap-1">
-          <AlertTriangle className="w-3 h-3" /> Testnet only. No real funds. Verify before going live.
+        <div className={cn("px-5 py-2 border-t border-white/10 text-[10px] flex items-center gap-1",
+          mode === 'live' ? 'text-rose-400' : 'text-amber-400/80')}>
+          <AlertTriangle className="w-3 h-3" />
+          {mode === 'live'
+            ? 'LIVE: real orders on your Binance account. Monitor closely.'
+            : 'Testnet only. No real funds. Verify before going live.'}
         </div>
       </div>
     </div>
