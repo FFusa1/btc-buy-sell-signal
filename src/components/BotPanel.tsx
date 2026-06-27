@@ -29,6 +29,8 @@ export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanel
   const [position, setPosition] = useState<Position>('FLAT');
   const [log, setLog] = useState<LogEntry[]>([]);
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<'testnet' | 'live'>(() => (localStorage.getItem('bot_mode') as any) || 'testnet');
+  const [confirmLive, setConfirmLive] = useState(false);
   const lastSigRef = useRef<string>('');
 
   const addLog = (kind: LogEntry['kind'], msg: string) =>
@@ -36,7 +38,7 @@ export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanel
 
   const callTrade = async (action: 'balance' | 'buy' | 'sell', extra: Record<string, any> = {}) => {
     const { data, error } = await supabase.functions.invoke('binance-trade', {
-      body: { action, ...extra },
+      body: { action, mode, ...extra },
     });
     if (error) throw new Error(error.message);
     if (!data?.ok) throw new Error(data?.error || 'Unknown error');
