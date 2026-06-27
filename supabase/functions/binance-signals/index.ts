@@ -800,82 +800,92 @@ serve(async (req) => {
     const pricePrediction = predictPrice1Hour(hourlyKlines, hourlyAnalysis);
 
     // ============================================================
-    // MASTER SIGNAL — multi-timeframe confluence for bot automation
+    // MASTER SIGNAL — multi-timeframe confluence with vetoes
     // ------------------------------------------------------------
-    // Only emits an actionable BUY/SELL when:
-    //   1. Weighted vote agreement >= MIN_AGREEMENT (default 75%)
-    //   2. The dominant side's confidence >= MIN_CONFIDENCE (default 75%)
-    //   3. The 1h trend does not contradict the short-term signal
-    // Otherwise -> HOLD (actionable=false) so the bot stays flat.
+    // Stricter rules for bot automation:
+    //   1. NET weighted confidence (winner - loser) must clear threshold
+    //   2. Winning side agreement >= MIN_AGREEMENT
+    //   3. 1h trend must align (BUY needs non-BEARISH, SELL needs non-BULLISH)
+    //   4. Vetoes: RSI extreme against signal, MACD against signal, weak volume
     // ============================================================
     const MIN_CONFIDENCE = 75;
-    const MIN_AGREEMENT = 75;
+    const MIN_AGREEMENT = 70;
+    const MIN_NET = 55; // (winnerWeight - loserWeight)/total * 100
 
+    // Weights reflect signal reliability: higher timeframe technicals dominate;
+    // patterns are confirmation only. 30s patterns are too noisy → dropped.
     const sources = [
-      { source: '1h technicals', s: hourlyAnalysis, weight: 3 },
+      { source: '1h technicals', s: hourlyAnalysis, weight: 4 },
       { source: '5m technicals', s: fiveMinAnalysis, weight: 3 },
-      { source: '1m technicals', s: shortTermAnalysis, weight: 2 },
+      { source: '1m technicals', s: shortTermAnalysis, weight: 1 },
       { source: '1h patterns', s: patternAnalysis, weight: 2 },
       { source: '30m patterns', s: thirtyMinPatternAnalysis, weight: 2 },
       { source: '5m patterns', s: fiveMinPatternAnalysis, weight: 1 },
     ];
 
-    let buyWeight = 0;
-    let sellWeight = 0;
-    let totalWeight = 0;
-    let buyConfSum = 0;
-    let sellConfSum = 0;
+    let buyWeight = 0, sellWeight = 0, totalWeight = 0;
+    let buyConfSum = 0, sellConfSum = 0;
     const votes = sources.map(({ source, s, weight }) => {
       totalWeight += weight;
-      if (s.signal === 'BUY') {
-        buyWeight += weight;
-        buyConfSum += s.confidence * weight;
-      } else if (s.signal === 'SELL') {
-        sellWeight += weight;
-        sellConfSum += s.confidence * weight;
-      }
+      if (s.signal === 'BUY') { buyWeight += weight; buyConfSum += s.confidence * weight; }
+      else if (s.signal === 'SELL') { sellWeight += weight; sellConfSum += s.confidence * weight; }
       return { source, signal: s.signal, weight };
     });
 
     const buyAgreement = (buyWeight / totalWeight) * 100;
     const sellAgreement = (sellWeight / totalWeight) * 100;
-    const trendOk = (side: 'BUY' | 'SELL') =>
-      side === 'BUY'
-        ? hourlyAnalysis.indicators.trend !== 'BEARISH'
-        : hourlyAnalysis.indicators.trend !== 'BULLISH';
+    const netBuy = ((buyWeight - sellWeight) / totalWeight) * 100;
+    const netSell = -netBuy;
+    const buyConf = buyWeight > 0 ? buyConfSum / buyWeight : 0;
+    const sellConf = sellWeight > 0 ? sellConfSum / sellWeight : 0;
+
+    const trend = hourlyAnalysis.indicators.trend;
+    const rsi = hourlyAnalysis.indicators.rsi;
+    const hourlyMacd = calculateMACD(hourlyKlines.map(k => k.close));
+    const hourlyVol = volumeRatio(hourlyKlines, 5, 20);
 
     let mSignal: 'BUY' | 'SELL' | 'HOLD' = 'HOLD';
     let mConfidence = Math.max(buyAgreement, sellAgreement);
     let mAgreement = mConfidence;
-    let mReason = `Insufficient confluence (${Math.round(buyAgreement)}% buy / ${Math.round(sellAgreement)}% sell). Bot should stay flat.`;
+    let mReason = `Insufficient confluence (${Math.round(buyAgreement)}% buy / ${Math.round(sellAgreement)}% sell). Bot stays flat.`;
     let actionable = false;
 
-    if (buyAgreement >= MIN_AGREEMENT && buyWeight > 0) {
-      const conf = buyConfSum / buyWeight;
-      if (conf >= MIN_CONFIDENCE && trendOk('BUY')) {
-        mSignal = 'BUY';
+    const tryEnter = (side: 'BUY' | 'SELL') => {
+      const agreement = side === 'BUY' ? buyAgreement : sellAgreement;
+      const conf = side === 'BUY' ? buyConf : sellConf;
+      const net = side === 'BUY' ? netBuy : netSell;
+      const blocks: string[] = [];
+
+      if (agreement < MIN_AGREEMENT) blocks.push(`agreement ${Math.round(agreement)}% < ${MIN_AGREEMENT}%`);
+      if (conf < MIN_CONFIDENCE) blocks.push(`avg conf ${Math.round(conf)}% < ${MIN_CONFIDENCE}%`);
+      if (net < MIN_NET) blocks.push(`net edge ${Math.round(net)}% < ${MIN_NET}%`);
+      if (side === 'BUY' && trend === 'BEARISH') blocks.push('1h trend bearish');
+      if (side === 'SELL' && trend === 'BULLISH') blocks.push('1h trend bullish');
+      // RSI extreme veto: don't chase tops or bottoms
+      if (side === 'BUY' && rsi > 75) blocks.push(`RSI ${rsi.toFixed(0)} overbought`);
+      if (side === 'SELL' && rsi < 25) blocks.push(`RSI ${rsi.toFixed(0)} oversold`);
+      // MACD must agree on the 1h
+      if (side === 'BUY' && hourlyMacd.hist < 0) blocks.push('1h MACD negative');
+      if (side === 'SELL' && hourlyMacd.hist > 0) blocks.push('1h MACD positive');
+      // Volume conviction
+      if (hourlyVol < 0.6) blocks.push(`weak 1h volume (${hourlyVol.toFixed(2)}x)`);
+
+      if (blocks.length === 0) {
+        mSignal = side;
         mConfidence = conf;
-        mAgreement = buyAgreement;
+        mAgreement = agreement;
         actionable = true;
-        mReason = `${Math.round(buyAgreement)}% of timeframes agree BUY at ${Math.round(conf)}% avg confidence. Safe for bot execution.`;
-      } else {
-        mReason = trendOk('BUY')
-          ? `BUY agreement ${Math.round(buyAgreement)}% but avg confidence ${Math.round(conf)}% < ${MIN_CONFIDENCE}%.`
-          : `BUY consensus blocked by bearish 1h trend.`;
+        mReason = `${Math.round(agreement)}% agreement, ${Math.round(conf)}% avg conf, ${Math.round(net)}% net edge. Trend ${trend}. Safe for bot.`;
+        return true;
       }
-    } else if (sellAgreement >= MIN_AGREEMENT && sellWeight > 0) {
-      const conf = sellConfSum / sellWeight;
-      if (conf >= MIN_CONFIDENCE && trendOk('SELL')) {
-        mSignal = 'SELL';
-        mConfidence = conf;
-        mAgreement = sellAgreement;
-        actionable = true;
-        mReason = `${Math.round(sellAgreement)}% of timeframes agree SELL at ${Math.round(conf)}% avg confidence. Safe for bot execution.`;
-      } else {
-        mReason = trendOk('SELL')
-          ? `SELL agreement ${Math.round(sellAgreement)}% but avg confidence ${Math.round(conf)}% < ${MIN_CONFIDENCE}%.`
-          : `SELL consensus blocked by bullish 1h trend.`;
-      }
+      mReason = `${side} blocked: ${blocks.join('; ')}.`;
+      return false;
+    };
+
+    if (buyAgreement > sellAgreement) {
+      if (!tryEnter('BUY') && sellAgreement >= MIN_AGREEMENT) tryEnter('SELL');
+    } else if (sellAgreement > buyAgreement) {
+      if (!tryEnter('SELL') && buyAgreement >= MIN_AGREEMENT) tryEnter('BUY');
     }
 
     const masterSignal = {
@@ -887,6 +897,7 @@ serve(async (req) => {
       votes,
       reason: mReason,
     };
+
     
     const analysis: AnalysisResult = {
       currentPrice,
