@@ -133,28 +133,74 @@ function calculateSMA(prices: number[], period: number): number {
   return slice.reduce((sum, price) => sum + price, 0) / period;
 }
 
-// Calculate RSI (Relative Strength Index)
+// EMA full series
+function emaSeries(prices: number[], period: number): number[] {
+  if (prices.length === 0) return [];
+  const k = 2 / (period + 1);
+  const out: number[] = [];
+  let ema = prices[0];
+  for (let i = 0; i < prices.length; i++) {
+    ema = i === 0 ? prices[0] : prices[i] * k + ema * (1 - k);
+    out.push(ema);
+  }
+  return out;
+}
+
+function calculateEMA(prices: number[], period: number): number {
+  const s = emaSeries(prices, period);
+  return s[s.length - 1];
+}
+
+// MACD (12, 26, 9)
+function calculateMACD(prices: number[]): { macd: number; signal: number; hist: number; prevHist: number } {
+  if (prices.length < 35) return { macd: 0, signal: 0, hist: 0, prevHist: 0 };
+  const ema12 = emaSeries(prices, 12);
+  const ema26 = emaSeries(prices, 26);
+  const macdLine: number[] = ema12.map((v, i) => v - ema26[i]);
+  const signalLine = emaSeries(macdLine, 9);
+  const macd = macdLine[macdLine.length - 1];
+  const signal = signalLine[signalLine.length - 1];
+  const prevMacd = macdLine[macdLine.length - 2];
+  const prevSignal = signalLine[signalLine.length - 2];
+  return { macd, signal, hist: macd - signal, prevHist: prevMacd - prevSignal };
+}
+
+// Bollinger Bands
+function calculateBollinger(prices: number[], period = 20, mult = 2) {
+  const p = prices[prices.length - 1];
+  if (prices.length < period) return { upper: p, lower: p, mid: p, pctB: 0.5, width: 0 };
+  const slice = prices.slice(-period);
+  const mid = slice.reduce((s, x) => s + x, 0) / period;
+  const variance = slice.reduce((s, x) => s + (x - mid) ** 2, 0) / period;
+  const sd = Math.sqrt(variance);
+  const upper = mid + mult * sd;
+  const lower = mid - mult * sd;
+  const range = upper - lower || 1;
+  return { upper, lower, mid, pctB: (p - lower) / range, width: range / mid };
+}
+
+// RSI (Wilder smoothing)
 function calculateRSI(prices: number[], period: number = 14): number {
   if (prices.length < period + 1) return 50;
-  
-  let gains = 0;
-  let losses = 0;
-  
-  for (let i = prices.length - period; i < prices.length; i++) {
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= period; i++) {
     const change = prices[i] - prices[i - 1];
-    if (change > 0) gains += change;
-    else losses += Math.abs(change);
+    if (change > 0) gains += change; else losses += Math.abs(change);
   }
-  
-  const avgGain = gains / period;
-  const avgLoss = losses / period;
-  
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
+  for (let i = period + 1; i < prices.length; i++) {
+    const change = prices[i] - prices[i - 1];
+    const gain = change > 0 ? change : 0;
+    const loss = change < 0 ? Math.abs(change) : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+  }
   if (avgLoss === 0) return 100;
   const rs = avgGain / avgLoss;
   return 100 - (100 / (1 + rs));
 }
 
-// Calculate momentum (rate of change)
 function calculateMomentum(prices: number[], period: number = 10): number {
   if (prices.length < period) return 0;
   const current = prices[prices.length - 1];
@@ -162,105 +208,97 @@ function calculateMomentum(prices: number[], period: number = 10): number {
   return ((current - past) / past) * 100;
 }
 
-// Analyze price data and generate trading signal
+function volumeRatio(klines: Kline[], short = 5, long = 20): number {
+  if (klines.length < long) return 1;
+  const vols = klines.map(k => k.volume);
+  const s = vols.slice(-short).reduce((a, b) => a + b, 0) / short;
+  const l = vols.slice(-long).reduce((a, b) => a + b, 0) / long;
+  return l === 0 ? 1 : s / l;
+}
+
+// Multi-indicator confluence analysis
 function analyzePrice(klines: Kline[]): { signal: 'BUY' | 'SELL' | 'HOLD'; confidence: number; reason: string; indicators: any; } {
   const closePrices = klines.map(k => k.close);
   const currentPrice = closePrices[closePrices.length - 1];
-  
+
   const sma7 = calculateSMA(closePrices, 7);
   const sma25 = calculateSMA(closePrices, 25);
-  const rsi = calculateRSI(closePrices);
-  const momentum = calculateMomentum(closePrices);
-  
-  // Determine trend
+  const ema9 = calculateEMA(closePrices, 9);
+  const ema21 = calculateEMA(closePrices, 21);
+  const ema50 = closePrices.length >= 50 ? calculateEMA(closePrices, 50) : sma25;
+  const rsi = calculateRSI(closePrices, 14);
+  const momentum = calculateMomentum(closePrices, 10);
+  const macd = calculateMACD(closePrices);
+  const bb = calculateBollinger(closePrices, 20, 2);
+  const vRatio = volumeRatio(klines, 5, 20);
+
   let trend: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
-  if (sma7 > sma25 && currentPrice > sma7) trend = 'BULLISH';
-  else if (sma7 < sma25 && currentPrice < sma7) trend = 'BEARISH';
-  
-  // Calculate confidence and signal
-  let buyScore = 0;
-  let sellScore = 0;
+  if (ema9 > ema21 && ema21 > ema50 && currentPrice > ema21) trend = 'BULLISH';
+  else if (ema9 < ema21 && ema21 < ema50 && currentPrice < ema21) trend = 'BEARISH';
+
+  let buyScore = 0, sellScore = 0;
   const reasons: string[] = [];
-  
-  // SMA crossover analysis
-  if (sma7 > sma25) {
-    buyScore += 20;
-    reasons.push('Short-term MA above long-term MA');
-  } else {
-    sellScore += 20;
-    reasons.push('Short-term MA below long-term MA');
+
+  if (ema9 > ema21) { buyScore += 15; reasons.push('EMA9 above EMA21'); }
+  else { sellScore += 15; reasons.push('EMA9 below EMA21'); }
+
+  if (currentPrice > ema50) { buyScore += 10; reasons.push('Price above EMA50'); }
+  else { sellScore += 10; reasons.push('Price below EMA50'); }
+
+  if (sma7 > sma25) buyScore += 8; else sellScore += 8;
+
+  if (macd.hist > 0 && macd.prevHist <= 0) { buyScore += 20; reasons.push('MACD bullish cross'); }
+  else if (macd.hist < 0 && macd.prevHist >= 0) { sellScore += 20; reasons.push('MACD bearish cross'); }
+  else if (macd.hist > 0) { buyScore += 12; reasons.push('MACD histogram positive'); }
+  else { sellScore += 12; reasons.push('MACD histogram negative'); }
+
+  if (rsi < 30) { buyScore += 15; reasons.push('RSI oversold'); }
+  else if (rsi > 70) { sellScore += 15; reasons.push('RSI overbought'); }
+  else if (rsi > 55) buyScore += 7;
+  else if (rsi < 45) sellScore += 7;
+
+  if (momentum > 1) { buyScore += 10; reasons.push('Strong positive momentum'); }
+  else if (momentum < -1) { sellScore += 10; reasons.push('Strong negative momentum'); }
+  else if (momentum > 0) buyScore += 4;
+  else sellScore += 4;
+
+  if (bb.pctB < 0.15) { buyScore += 10; reasons.push('Near lower Bollinger band'); }
+  else if (bb.pctB > 0.85) { sellScore += 10; reasons.push('Near upper Bollinger band'); }
+  else if (bb.pctB < 0.4) buyScore += 4;
+  else if (bb.pctB > 0.6) sellScore += 4;
+
+  if (vRatio > 1.3) {
+    if (buyScore > sellScore) { buyScore += 10; reasons.push('Rising volume confirms buyers'); }
+    else { sellScore += 10; reasons.push('Rising volume confirms sellers'); }
+  } else if (vRatio < 0.7) {
+    buyScore = Math.max(0, buyScore - 5);
+    sellScore = Math.max(0, sellScore - 5);
+    reasons.push('Low volume — weak conviction');
   }
-  
-  // Price vs SMA
-  if (currentPrice > sma7) {
-    buyScore += 15;
-    reasons.push('Price above 7-period MA');
-  } else {
-    sellScore += 15;
-    reasons.push('Price below 7-period MA');
-  }
-  
-  // RSI analysis
-  if (rsi < 30) {
-    buyScore += 25;
-    reasons.push('RSI indicates oversold');
-  } else if (rsi > 70) {
-    sellScore += 25;
-    reasons.push('RSI indicates overbought');
-  } else if (rsi < 50) {
-    sellScore += 10;
-  } else {
-    buyScore += 10;
-  }
-  
-  // Momentum analysis
-  if (momentum > 2) {
-    buyScore += 20;
-    reasons.push('Strong positive momentum');
-  } else if (momentum < -2) {
-    sellScore += 20;
-    reasons.push('Strong negative momentum');
-  } else if (momentum > 0) {
-    buyScore += 10;
-  } else {
-    sellScore += 10;
-  }
-  
-  // Recent price action (last 5 candles)
-  const recentPrices = closePrices.slice(-5);
-  const recentGains = recentPrices.filter((p, i) => i > 0 && p > recentPrices[i - 1]).length;
-  if (recentGains >= 3) {
-    buyScore += 15;
-    reasons.push('Recent upward movement');
-  } else if (recentGains <= 1) {
-    sellScore += 15;
-    reasons.push('Recent downward movement');
-  }
-  
-  const totalScore = buyScore + sellScore;
+
+  const totalScore = buyScore + sellScore || 1;
   const buyConfidence = (buyScore / totalScore) * 100;
-  
+
   let signal: 'BUY' | 'SELL' | 'HOLD' = 'HOLD';
   let confidence = 50;
-  let reason = 'Market conditions are neutral';
-  
-  if (buyConfidence > 55) {
+  let reason = 'Market conditions are mixed';
+
+  if (buyConfidence >= 62) {
     signal = 'BUY';
     confidence = buyConfidence;
-    reason = reasons.filter(r => r.includes('above') || r.includes('positive') || r.includes('oversold') || r.includes('upward')).join('. ');
-  } else if (buyConfidence < 45) {
+    reason = reasons.filter(r => /above|positive|oversold|bullish|lower Bollinger|buyers/i.test(r)).slice(0, 4).join('. ');
+  } else if (buyConfidence <= 38) {
     signal = 'SELL';
     confidence = 100 - buyConfidence;
-    reason = reasons.filter(r => r.includes('below') || r.includes('negative') || r.includes('overbought') || r.includes('downward')).join('. ');
+    reason = reasons.filter(r => /below|negative|overbought|bearish|upper Bollinger|sellers/i.test(r)).slice(0, 4).join('. ');
   }
-  
+
   return {
     signal,
     confidence: Math.round(confidence),
     reason: reason || 'Mixed signals',
     indicators: {
-      sma7,
-      sma25,
+      sma7, sma25,
       rsi: Math.round(rsi * 100) / 100,
       momentum: Math.round(momentum * 100) / 100,
       trend
@@ -268,82 +306,70 @@ function analyzePrice(klines: Kline[]): { signal: 'BUY' | 'SELL' | 'HOLD'; confi
   };
 }
 
-// Analyze short-term (1-minute) data
+// Short-term confluence (1m / 5m)
 function analyzeShortTerm(klines: Kline[]): { signal: 'BUY' | 'SELL' | 'HOLD'; confidence: number; reason: string; } {
   const closePrices = klines.map(k => k.close);
-  
-  // Use shorter periods for 1-minute data
-  const sma3 = calculateSMA(closePrices, 3);
-  const sma7 = calculateSMA(closePrices, 7);
-  const rsi = calculateRSI(closePrices, 7); // Shorter RSI period
+
+  const ema5 = calculateEMA(closePrices, 5);
+  const ema13 = calculateEMA(closePrices, 13);
+  const rsi = calculateRSI(closePrices, 7);
   const momentum = calculateMomentum(closePrices, 5);
-  
-  let buyScore = 0;
-  let sellScore = 0;
+  const macd = calculateMACD(closePrices);
+  const bbPeriod = Math.min(20, Math.max(5, closePrices.length - 1));
+  const bb = calculateBollinger(closePrices, bbPeriod, 2);
+  const vRatio = volumeRatio(klines, 3, Math.min(15, klines.length));
+
+  let buyScore = 0, sellScore = 0;
   const reasons: string[] = [];
-  
-  // Short-term SMA crossover
-  if (sma3 > sma7) {
-    buyScore += 25;
-    reasons.push('3-min MA above 7-min MA');
-  } else {
-    sellScore += 25;
-    reasons.push('3-min MA below 7-min MA');
-  }
-  
-  // RSI for short-term
-  if (rsi < 35) {
-    buyScore += 25;
-    reasons.push('Short-term oversold');
-  } else if (rsi > 65) {
-    sellScore += 25;
-    reasons.push('Short-term overbought');
-  } else if (rsi < 50) {
-    sellScore += 10;
-  } else {
-    buyScore += 10;
-  }
-  
-  // Quick momentum
-  if (momentum > 0.1) {
-    buyScore += 25;
-    reasons.push('Positive short momentum');
-  } else if (momentum < -0.1) {
-    sellScore += 25;
-    reasons.push('Negative short momentum');
-  } else {
-    buyScore += 5;
-    sellScore += 5;
-  }
-  
-  // Last 3 candle direction
+
+  if (ema5 > ema13) { buyScore += 20; reasons.push('EMA5 above EMA13'); }
+  else { sellScore += 20; reasons.push('EMA5 below EMA13'); }
+
+  if (macd.hist > 0 && macd.prevHist <= 0) { buyScore += 20; reasons.push('MACD bullish cross'); }
+  else if (macd.hist < 0 && macd.prevHist >= 0) { sellScore += 20; reasons.push('MACD bearish cross'); }
+  else if (macd.hist > 0) buyScore += 10;
+  else sellScore += 10;
+
+  if (rsi < 30) { buyScore += 18; reasons.push('Short-term oversold'); }
+  else if (rsi > 70) { sellScore += 18; reasons.push('Short-term overbought'); }
+  else if (rsi > 55) buyScore += 6;
+  else if (rsi < 45) sellScore += 6;
+
+  if (momentum > 0.15) { buyScore += 15; reasons.push('Positive short momentum'); }
+  else if (momentum < -0.15) { sellScore += 15; reasons.push('Negative short momentum'); }
+
+  if (bb.pctB < 0.15) { buyScore += 10; reasons.push('Near lower band'); }
+  else if (bb.pctB > 0.85) { sellScore += 10; reasons.push('Near upper band'); }
+
   const last3 = closePrices.slice(-3);
   const upCandles = last3.filter((p, i) => i > 0 && p > last3[i - 1]).length;
-  if (upCandles >= 2) {
-    buyScore += 20;
-    reasons.push('Recent uptrend');
-  } else if (upCandles === 0) {
-    sellScore += 20;
-    reasons.push('Recent downtrend');
+  if (upCandles >= 2) { buyScore += 10; reasons.push('Recent uptrend'); }
+  else if (upCandles === 0) { sellScore += 10; reasons.push('Recent downtrend'); }
+
+  if (vRatio > 1.3) {
+    if (buyScore > sellScore) buyScore += 8; else sellScore += 8;
+  } else if (vRatio < 0.7) {
+    buyScore = Math.max(0, buyScore - 4);
+    sellScore = Math.max(0, sellScore - 4);
   }
-  
-  const totalScore = buyScore + sellScore;
-  const buyConfidence = totalScore > 0 ? (buyScore / totalScore) * 100 : 50;
-  
+
+  const totalScore = buyScore + sellScore || 1;
+  const buyConfidence = (buyScore / totalScore) * 100;
+
   let signal: 'BUY' | 'SELL' | 'HOLD' = 'HOLD';
   let confidence = 50;
   let reason = 'Short-term neutral';
-  
-  if (buyConfidence > 55) {
+
+  if (buyConfidence >= 62) {
     signal = 'BUY';
     confidence = buyConfidence;
-    reason = reasons.filter(r => r.includes('above') || r.includes('Positive') || r.includes('oversold') || r.includes('uptrend')).join('. ');
-  } else if (buyConfidence < 45) {
+    reason = reasons.filter(r => /above|Positive|oversold|bullish|lower|uptrend/i.test(r)).slice(0, 3).join('. ');
+  } else if (buyConfidence <= 38) {
     signal = 'SELL';
     confidence = 100 - buyConfidence;
-    reason = reasons.filter(r => r.includes('below') || r.includes('Negative') || r.includes('overbought') || r.includes('downtrend')).join('. ');
+    reason = reasons.filter(r => /below|Negative|overbought|bearish|upper|downtrend/i.test(r)).slice(0, 3).join('. ');
   }
-  
+
   return {
     signal,
     confidence: Math.round(confidence),
@@ -774,82 +800,92 @@ serve(async (req) => {
     const pricePrediction = predictPrice1Hour(hourlyKlines, hourlyAnalysis);
 
     // ============================================================
-    // MASTER SIGNAL — multi-timeframe confluence for bot automation
+    // MASTER SIGNAL — multi-timeframe confluence with vetoes
     // ------------------------------------------------------------
-    // Only emits an actionable BUY/SELL when:
-    //   1. Weighted vote agreement >= MIN_AGREEMENT (default 75%)
-    //   2. The dominant side's confidence >= MIN_CONFIDENCE (default 75%)
-    //   3. The 1h trend does not contradict the short-term signal
-    // Otherwise -> HOLD (actionable=false) so the bot stays flat.
+    // Stricter rules for bot automation:
+    //   1. NET weighted confidence (winner - loser) must clear threshold
+    //   2. Winning side agreement >= MIN_AGREEMENT
+    //   3. 1h trend must align (BUY needs non-BEARISH, SELL needs non-BULLISH)
+    //   4. Vetoes: RSI extreme against signal, MACD against signal, weak volume
     // ============================================================
     const MIN_CONFIDENCE = 75;
-    const MIN_AGREEMENT = 75;
+    const MIN_AGREEMENT = 70;
+    const MIN_NET = 55; // (winnerWeight - loserWeight)/total * 100
 
+    // Weights reflect signal reliability: higher timeframe technicals dominate;
+    // patterns are confirmation only. 30s patterns are too noisy → dropped.
     const sources = [
-      { source: '1h technicals', s: hourlyAnalysis, weight: 3 },
+      { source: '1h technicals', s: hourlyAnalysis, weight: 4 },
       { source: '5m technicals', s: fiveMinAnalysis, weight: 3 },
-      { source: '1m technicals', s: shortTermAnalysis, weight: 2 },
+      { source: '1m technicals', s: shortTermAnalysis, weight: 1 },
       { source: '1h patterns', s: patternAnalysis, weight: 2 },
       { source: '30m patterns', s: thirtyMinPatternAnalysis, weight: 2 },
       { source: '5m patterns', s: fiveMinPatternAnalysis, weight: 1 },
     ];
 
-    let buyWeight = 0;
-    let sellWeight = 0;
-    let totalWeight = 0;
-    let buyConfSum = 0;
-    let sellConfSum = 0;
+    let buyWeight = 0, sellWeight = 0, totalWeight = 0;
+    let buyConfSum = 0, sellConfSum = 0;
     const votes = sources.map(({ source, s, weight }) => {
       totalWeight += weight;
-      if (s.signal === 'BUY') {
-        buyWeight += weight;
-        buyConfSum += s.confidence * weight;
-      } else if (s.signal === 'SELL') {
-        sellWeight += weight;
-        sellConfSum += s.confidence * weight;
-      }
+      if (s.signal === 'BUY') { buyWeight += weight; buyConfSum += s.confidence * weight; }
+      else if (s.signal === 'SELL') { sellWeight += weight; sellConfSum += s.confidence * weight; }
       return { source, signal: s.signal, weight };
     });
 
     const buyAgreement = (buyWeight / totalWeight) * 100;
     const sellAgreement = (sellWeight / totalWeight) * 100;
-    const trendOk = (side: 'BUY' | 'SELL') =>
-      side === 'BUY'
-        ? hourlyAnalysis.indicators.trend !== 'BEARISH'
-        : hourlyAnalysis.indicators.trend !== 'BULLISH';
+    const netBuy = ((buyWeight - sellWeight) / totalWeight) * 100;
+    const netSell = -netBuy;
+    const buyConf = buyWeight > 0 ? buyConfSum / buyWeight : 0;
+    const sellConf = sellWeight > 0 ? sellConfSum / sellWeight : 0;
+
+    const trend = hourlyAnalysis.indicators.trend;
+    const rsi = hourlyAnalysis.indicators.rsi;
+    const hourlyMacd = calculateMACD(hourlyKlines.map(k => k.close));
+    const hourlyVol = volumeRatio(hourlyKlines, 5, 20);
 
     let mSignal: 'BUY' | 'SELL' | 'HOLD' = 'HOLD';
     let mConfidence = Math.max(buyAgreement, sellAgreement);
     let mAgreement = mConfidence;
-    let mReason = `Insufficient confluence (${Math.round(buyAgreement)}% buy / ${Math.round(sellAgreement)}% sell). Bot should stay flat.`;
+    let mReason = `Insufficient confluence (${Math.round(buyAgreement)}% buy / ${Math.round(sellAgreement)}% sell). Bot stays flat.`;
     let actionable = false;
 
-    if (buyAgreement >= MIN_AGREEMENT && buyWeight > 0) {
-      const conf = buyConfSum / buyWeight;
-      if (conf >= MIN_CONFIDENCE && trendOk('BUY')) {
-        mSignal = 'BUY';
+    const tryEnter = (side: 'BUY' | 'SELL') => {
+      const agreement = side === 'BUY' ? buyAgreement : sellAgreement;
+      const conf = side === 'BUY' ? buyConf : sellConf;
+      const net = side === 'BUY' ? netBuy : netSell;
+      const blocks: string[] = [];
+
+      if (agreement < MIN_AGREEMENT) blocks.push(`agreement ${Math.round(agreement)}% < ${MIN_AGREEMENT}%`);
+      if (conf < MIN_CONFIDENCE) blocks.push(`avg conf ${Math.round(conf)}% < ${MIN_CONFIDENCE}%`);
+      if (net < MIN_NET) blocks.push(`net edge ${Math.round(net)}% < ${MIN_NET}%`);
+      if (side === 'BUY' && trend === 'BEARISH') blocks.push('1h trend bearish');
+      if (side === 'SELL' && trend === 'BULLISH') blocks.push('1h trend bullish');
+      // RSI extreme veto: don't chase tops or bottoms
+      if (side === 'BUY' && rsi > 75) blocks.push(`RSI ${rsi.toFixed(0)} overbought`);
+      if (side === 'SELL' && rsi < 25) blocks.push(`RSI ${rsi.toFixed(0)} oversold`);
+      // MACD must agree on the 1h
+      if (side === 'BUY' && hourlyMacd.hist < 0) blocks.push('1h MACD negative');
+      if (side === 'SELL' && hourlyMacd.hist > 0) blocks.push('1h MACD positive');
+      // Volume conviction
+      if (hourlyVol < 0.6) blocks.push(`weak 1h volume (${hourlyVol.toFixed(2)}x)`);
+
+      if (blocks.length === 0) {
+        mSignal = side;
         mConfidence = conf;
-        mAgreement = buyAgreement;
+        mAgreement = agreement;
         actionable = true;
-        mReason = `${Math.round(buyAgreement)}% of timeframes agree BUY at ${Math.round(conf)}% avg confidence. Safe for bot execution.`;
-      } else {
-        mReason = trendOk('BUY')
-          ? `BUY agreement ${Math.round(buyAgreement)}% but avg confidence ${Math.round(conf)}% < ${MIN_CONFIDENCE}%.`
-          : `BUY consensus blocked by bearish 1h trend.`;
+        mReason = `${Math.round(agreement)}% agreement, ${Math.round(conf)}% avg conf, ${Math.round(net)}% net edge. Trend ${trend}. Safe for bot.`;
+        return true;
       }
-    } else if (sellAgreement >= MIN_AGREEMENT && sellWeight > 0) {
-      const conf = sellConfSum / sellWeight;
-      if (conf >= MIN_CONFIDENCE && trendOk('SELL')) {
-        mSignal = 'SELL';
-        mConfidence = conf;
-        mAgreement = sellAgreement;
-        actionable = true;
-        mReason = `${Math.round(sellAgreement)}% of timeframes agree SELL at ${Math.round(conf)}% avg confidence. Safe for bot execution.`;
-      } else {
-        mReason = trendOk('SELL')
-          ? `SELL agreement ${Math.round(sellAgreement)}% but avg confidence ${Math.round(conf)}% < ${MIN_CONFIDENCE}%.`
-          : `SELL consensus blocked by bullish 1h trend.`;
-      }
+      mReason = `${side} blocked: ${blocks.join('; ')}.`;
+      return false;
+    };
+
+    if (buyAgreement > sellAgreement) {
+      if (!tryEnter('BUY') && sellAgreement >= MIN_AGREEMENT) tryEnter('SELL');
+    } else if (sellAgreement > buyAgreement) {
+      if (!tryEnter('SELL') && buyAgreement >= MIN_AGREEMENT) tryEnter('BUY');
     }
 
     const masterSignal = {
@@ -861,6 +897,7 @@ serve(async (req) => {
       votes,
       reason: mReason,
     };
+
     
     const analysis: AnalysisResult = {
       currentPrice,
