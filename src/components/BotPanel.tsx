@@ -249,10 +249,16 @@ export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanel
             <label className="text-xs text-white/60">Order size (USDT)</label>
             <input
               type="number"
+              inputMode="decimal"
               min={10}
-              step={5}
-              value={quoteUsdt}
-              onChange={(e) => setQuoteUsdt(Math.max(10, Number(e.target.value) || 10))}
+              step={1}
+              value={quoteInput}
+              onChange={(e) => setQuoteInput(e.target.value)}
+              onBlur={() => {
+                const n = Math.max(10, Number(quoteInput) || 10);
+                setQuoteInput(String(n));
+                localStorage.setItem('bot_quote_usdt', String(n));
+              }}
               disabled={running}
               className="w-24 px-2 py-1 rounded bg-white/10 border border-white/10 text-white text-sm"
             />
