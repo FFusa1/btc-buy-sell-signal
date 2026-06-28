@@ -216,6 +216,32 @@ function volumeRatio(klines: Kline[], short = 5, long = 20): number {
   return l === 0 ? 1 : s / l;
 }
 
+// ATR (Average True Range) as % of price — measures volatility / chop
+function calculateATRPct(klines: Kline[], period = 14): number {
+  if (klines.length < period + 1) return 0;
+  const trs: number[] = [];
+  for (let i = 1; i < klines.length; i++) {
+    const h = klines[i].high, l = klines[i].low, pc = klines[i - 1].close;
+    trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+  }
+  const atr = trs.slice(-period).reduce((a, b) => a + b, 0) / period;
+  const last = klines[klines.length - 1].close;
+  return last === 0 ? 0 : (atr / last) * 100;
+}
+
+// EMA slope: % change of EMA50 over last `look` candles — trend strength & direction
+function emaSlope(prices: number[], period = 50, look = 5): number {
+  const s = emaSeries(prices, period);
+  if (s.length < look + 1) return 0;
+  const now = s[s.length - 1];
+  const past = s[s.length - 1 - look];
+  return past === 0 ? 0 : ((now - past) / past) * 100;
+}
+
+// Persistence cache: master signal must repeat across consecutive scans to fire
+const signalHistory: { last: 'BUY' | 'SELL' | 'HOLD'; streak: number } = { last: 'HOLD', streak: 0 };
+
+
 // Multi-indicator confluence analysis
 function analyzePrice(klines: Kline[]): { signal: 'BUY' | 'SELL' | 'HOLD'; confidence: number; reason: string; indicators: any; } {
   const closePrices = klines.map(k => k.close);
@@ -841,14 +867,20 @@ serve(async (req) => {
 
     const trend = hourlyAnalysis.indicators.trend;
     const rsi = hourlyAnalysis.indicators.rsi;
-    const hourlyMacd = calculateMACD(hourlyKlines.map(k => k.close));
+    const hourlyCloses = hourlyKlines.map(k => k.close);
+    const fiveMinCloses = fiveMinKlines.map(k => k.close);
+    const hourlyMacd = calculateMACD(hourlyCloses);
+    const fiveMinMacd = calculateMACD(fiveMinCloses);
     const hourlyVol = volumeRatio(hourlyKlines, 5, 20);
+    const hourlyATRPct = calculateATRPct(hourlyKlines, 14);
+    const hourlySlope = emaSlope(hourlyCloses, 50, 5); // % change of EMA50 over last 5h
+    const hourlyBB = calculateBollinger(hourlyCloses, 20, 2);
 
     let mSignal: 'BUY' | 'SELL' | 'HOLD' = 'HOLD';
     let mConfidence = Math.max(buyAgreement, sellAgreement);
     let mAgreement = mConfidence;
     let mReason = `Insufficient confluence (${Math.round(buyAgreement)}% buy / ${Math.round(sellAgreement)}% sell). Bot stays flat.`;
-    let actionable = false;
+    let preActionable = false;
 
     const tryEnter = (side: 'BUY' | 'SELL') => {
       const agreement = side === 'BUY' ? buyAgreement : sellAgreement;
@@ -859,23 +891,44 @@ serve(async (req) => {
       if (agreement < MIN_AGREEMENT) blocks.push(`agreement ${Math.round(agreement)}% < ${MIN_AGREEMENT}%`);
       if (conf < MIN_CONFIDENCE) blocks.push(`avg conf ${Math.round(conf)}% < ${MIN_CONFIDENCE}%`);
       if (net < MIN_NET) blocks.push(`net edge ${Math.round(net)}% < ${MIN_NET}%`);
+
+      // CO-CONFIRMATION: 1h AND 5m technicals must both agree with the side (no contradiction)
+      if (hourlyAnalysis.signal !== side) blocks.push(`1h tech is ${hourlyAnalysis.signal}`);
+      if (fiveMinAnalysis.signal === (side === 'BUY' ? 'SELL' : 'BUY')) blocks.push(`5m tech contradicts (${fiveMinAnalysis.signal})`);
+
+      // Trend & RSI
       if (side === 'BUY' && trend === 'BEARISH') blocks.push('1h trend bearish');
       if (side === 'SELL' && trend === 'BULLISH') blocks.push('1h trend bullish');
-      // RSI extreme veto: don't chase tops or bottoms
-      if (side === 'BUY' && rsi > 75) blocks.push(`RSI ${rsi.toFixed(0)} overbought`);
-      if (side === 'SELL' && rsi < 25) blocks.push(`RSI ${rsi.toFixed(0)} oversold`);
-      // MACD must agree on the 1h
+      if (side === 'BUY' && rsi > 72) blocks.push(`RSI ${rsi.toFixed(0)} overbought`);
+      if (side === 'SELL' && rsi < 28) blocks.push(`RSI ${rsi.toFixed(0)} oversold`);
+
+      // MACD on BOTH 1h and 5m must agree
       if (side === 'BUY' && hourlyMacd.hist < 0) blocks.push('1h MACD negative');
       if (side === 'SELL' && hourlyMacd.hist > 0) blocks.push('1h MACD positive');
+      if (side === 'BUY' && fiveMinMacd.hist < 0) blocks.push('5m MACD negative');
+      if (side === 'SELL' && fiveMinMacd.hist > 0) blocks.push('5m MACD positive');
+
+      // EMA50 slope — directional bias must align
+      if (side === 'BUY' && hourlySlope < -0.15) blocks.push(`EMA50 falling (${hourlySlope.toFixed(2)}%/5h)`);
+      if (side === 'SELL' && hourlySlope > 0.15) blocks.push(`EMA50 rising (${hourlySlope.toFixed(2)}%/5h)`);
+
+      // Bollinger position — don't BUY at upper band or SELL at lower band (extension risk)
+      if (side === 'BUY' && hourlyBB.pctB > 0.95) blocks.push(`price at upper BB (${(hourlyBB.pctB * 100).toFixed(0)}%)`);
+      if (side === 'SELL' && hourlyBB.pctB < 0.05) blocks.push(`price at lower BB (${(hourlyBB.pctB * 100).toFixed(0)}%)`);
+
       // Volume conviction
-      if (hourlyVol < 0.6) blocks.push(`weak 1h volume (${hourlyVol.toFixed(2)}x)`);
+      if (hourlyVol < 0.7) blocks.push(`weak 1h volume (${hourlyVol.toFixed(2)}x)`);
+
+      // Chop filter — ATR% too low means range-bound noise (false signals); too high means whipsaw
+      if (hourlyATRPct < 0.25) blocks.push(`low volatility / chop (ATR ${hourlyATRPct.toFixed(2)}%)`);
+      if (hourlyATRPct > 3.5) blocks.push(`extreme volatility (ATR ${hourlyATRPct.toFixed(2)}%)`);
 
       if (blocks.length === 0) {
         mSignal = side;
         mConfidence = conf;
         mAgreement = agreement;
-        actionable = true;
-        mReason = `${Math.round(agreement)}% agreement, ${Math.round(conf)}% avg conf, ${Math.round(net)}% net edge. Trend ${trend}. Safe for bot.`;
+        preActionable = true;
+        mReason = `${Math.round(agreement)}% agreement, ${Math.round(conf)}% conf, ${Math.round(net)}% edge. 1h+5m tech+MACD aligned. Trend ${trend}. ATR ${hourlyATRPct.toFixed(2)}%.`;
         return true;
       }
       mReason = `${side} blocked: ${blocks.join('; ')}.`;
@@ -888,6 +941,17 @@ serve(async (req) => {
       if (!tryEnter('SELL') && buyAgreement >= MIN_AGREEMENT) tryEnter('BUY');
     }
 
+    // PERSISTENCE: master signal must repeat at least 2 scans before bot is allowed to act.
+    // Prevents one-tick flickers from triggering trades.
+    const candidate: 'BUY' | 'SELL' | 'HOLD' = preActionable ? mSignal : 'HOLD';
+    if (candidate === signalHistory.last) signalHistory.streak += 1;
+    else { signalHistory.last = candidate; signalHistory.streak = 1; }
+    const PERSIST_REQUIRED = 2;
+    const actionable = preActionable && signalHistory.streak >= PERSIST_REQUIRED;
+    if (preActionable && !actionable) {
+      mReason += ` Awaiting persistence (${signalHistory.streak}/${PERSIST_REQUIRED} scans).`;
+    }
+
     const masterSignal = {
       signal: mSignal,
       confidence: Math.round(mConfidence),
@@ -897,6 +961,7 @@ serve(async (req) => {
       votes,
       reason: mReason,
     };
+
 
     
     const analysis: AnalysisResult = {
