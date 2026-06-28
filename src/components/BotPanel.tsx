@@ -24,14 +24,24 @@ type Position = 'FLAT' | 'LONG';
 
 export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanelProps) {
   const [running, setRunning] = useState(false);
-  const [quoteUsdt, setQuoteUsdt] = useState(20);
+  const [quoteInput, setQuoteInput] = useState<string>(() => localStorage.getItem('bot_quote_usdt') || '20');
+  const quoteUsdt = Math.max(10, Number(quoteInput) || 0);
   const [balance, setBalance] = useState<{ usdt: number; btc: number } | null>(null);
   const [position, setPosition] = useState<Position>('FLAT');
+  const [entryPrice, setEntryPrice] = useState<number | null>(() => {
+    const v = localStorage.getItem('bot_entry_price');
+    return v ? Number(v) : null;
+  });
   const [log, setLog] = useState<LogEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<'testnet' | 'live'>(() => (localStorage.getItem('bot_mode') as any) || 'testnet');
   const [confirmLive, setConfirmLive] = useState(false);
   const lastSigRef = useRef<string>('');
+
+  // Binance spot fee = 0.1% per side. Round-trip = 0.2%. Require extra 0.15% profit buffer.
+  const FEE_PER_SIDE = 0.001;
+  const MIN_PROFIT_BUFFER = 0.0015;
+  const BREAKEVEN_MULT = 1 + 2 * FEE_PER_SIDE + MIN_PROFIT_BUFFER; // ~1.0035
 
   const addLog = (kind: LogEntry['kind'], msg: string) =>
     setLog((l) => [{ ts: Date.now(), kind, msg }, ...l].slice(0, 50));
