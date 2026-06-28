@@ -89,25 +89,54 @@ export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanel
       setBusy(true);
       try {
         if (sig === 'BUY' && position === 'FLAT') {
-          addLog('info', `Signal BUY @ ${masterSignal.confidence}% conf → placing market BUY ${quoteUsdt} USDT`);
+          if (quoteUsdt < 10) {
+            addLog('skip', `Order size ${quoteUsdt} USDT below Binance min (10). Adjust order size.`);
+            lastSigRef.current = key;
+            return;
+          }
+          if (balance && balance.usdt < quoteUsdt) {
+            addLog('skip', `Insufficient USDT: have ${balance.usdt.toFixed(2)}, need ${quoteUsdt}`);
+            lastSigRef.current = key;
+            return;
+          }
+          addLog('info', `Signal BUY @ ${masterSignal.confidence}% conf → market BUY ${quoteUsdt} USDT`);
           const d = await callTrade('buy', { quoteUsdt });
-          addLog('buy', `Bought ~${quoteUsdt} USDT of BTC (order ${d.order?.orderId ?? '?'})`);
+          const fillPrice = currentPrice || (d.order?.fills?.[0]?.price ? Number(d.order.fills[0].price) : 0);
+          if (fillPrice > 0) {
+            setEntryPrice(fillPrice);
+            localStorage.setItem('bot_entry_price', String(fillPrice));
+          }
+          addLog('buy', `Bought ~${quoteUsdt} USDT of BTC @ ${fillPrice.toFixed(2)} (order ${d.order?.orderId ?? '?'})`);
           setBalance({ usdt: d.balance.usdt, btc: d.balance.btc });
           setPosition('LONG');
           lastSigRef.current = key;
         } else if (sig === 'SELL' && position === 'LONG') {
-          addLog('info', `Signal SELL @ ${masterSignal.confidence}% conf → selling entire BTC balance`);
+          // Fee-aware: only sell if price covers round-trip fees + min profit buffer
+          if (entryPrice && currentPrice > 0) {
+            const breakeven = entryPrice * BREAKEVEN_MULT;
+            if (currentPrice < breakeven) {
+              const lossPct = ((currentPrice / entryPrice - 1) * 100).toFixed(3);
+              addLog('skip', `SELL skipped — price ${currentPrice.toFixed(2)} < breakeven ${breakeven.toFixed(2)} (entry ${entryPrice.toFixed(2)}, ${lossPct}%, fees+buffer ${(((BREAKEVEN_MULT - 1) * 100)).toFixed(2)}%)`);
+              lastSigRef.current = key;
+              return;
+            }
+            const profitPct = ((currentPrice / entryPrice - 1) * 100).toFixed(3);
+            addLog('info', `Signal SELL → profitable (entry ${entryPrice.toFixed(2)} → ${currentPrice.toFixed(2)}, +${profitPct}% after fees)`);
+          } else {
+            addLog('info', `Signal SELL @ ${masterSignal.confidence}% conf → selling BTC`);
+          }
           const d = await callTrade('sell');
           if (d.order?.skipped) {
             addLog('skip', `Skipped: ${d.order.reason}`);
           } else {
             addLog('sell', `Sold BTC (order ${d.order?.orderId ?? '?'})`);
+            setEntryPrice(null);
+            localStorage.removeItem('bot_entry_price');
           }
           setBalance({ usdt: d.balance.usdt, btc: d.balance.btc });
           setPosition('FLAT');
           lastSigRef.current = key;
         } else {
-          // already in target position
           lastSigRef.current = key;
         }
       } catch (e: any) {
