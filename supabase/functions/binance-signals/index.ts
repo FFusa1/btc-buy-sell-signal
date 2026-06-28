@@ -216,6 +216,32 @@ function volumeRatio(klines: Kline[], short = 5, long = 20): number {
   return l === 0 ? 1 : s / l;
 }
 
+// ATR (Average True Range) as % of price — measures volatility / chop
+function calculateATRPct(klines: Kline[], period = 14): number {
+  if (klines.length < period + 1) return 0;
+  const trs: number[] = [];
+  for (let i = 1; i < klines.length; i++) {
+    const h = klines[i].high, l = klines[i].low, pc = klines[i - 1].close;
+    trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+  }
+  const atr = trs.slice(-period).reduce((a, b) => a + b, 0) / period;
+  const last = klines[klines.length - 1].close;
+  return last === 0 ? 0 : (atr / last) * 100;
+}
+
+// EMA slope: % change of EMA50 over last `look` candles — trend strength & direction
+function emaSlope(prices: number[], period = 50, look = 5): number {
+  const s = emaSeries(prices, period);
+  if (s.length < look + 1) return 0;
+  const now = s[s.length - 1];
+  const past = s[s.length - 1 - look];
+  return past === 0 ? 0 : ((now - past) / past) * 100;
+}
+
+// Persistence cache: master signal must repeat across consecutive scans to fire
+const signalHistory: { last: 'BUY' | 'SELL' | 'HOLD'; streak: number } = { last: 'HOLD', streak: 0 };
+
+
 // Multi-indicator confluence analysis
 function analyzePrice(klines: Kline[]): { signal: 'BUY' | 'SELL' | 'HOLD'; confidence: number; reason: string; indicators: any; } {
   const closePrices = klines.map(k => k.close);
