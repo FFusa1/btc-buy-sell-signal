@@ -24,14 +24,24 @@ type Position = 'FLAT' | 'LONG';
 
 export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanelProps) {
   const [running, setRunning] = useState(false);
-  const [quoteUsdt, setQuoteUsdt] = useState(20);
+  const [quoteInput, setQuoteInput] = useState<string>(() => localStorage.getItem('bot_quote_usdt') || '20');
+  const quoteUsdt = Math.max(10, Number(quoteInput) || 0);
   const [balance, setBalance] = useState<{ usdt: number; btc: number } | null>(null);
   const [position, setPosition] = useState<Position>('FLAT');
+  const [entryPrice, setEntryPrice] = useState<number | null>(() => {
+    const v = localStorage.getItem('bot_entry_price');
+    return v ? Number(v) : null;
+  });
   const [log, setLog] = useState<LogEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<'testnet' | 'live'>(() => (localStorage.getItem('bot_mode') as any) || 'testnet');
   const [confirmLive, setConfirmLive] = useState(false);
   const lastSigRef = useRef<string>('');
+
+  // Binance spot fee = 0.1% per side. Round-trip = 0.2%. Require extra 0.15% profit buffer.
+  const FEE_PER_SIDE = 0.001;
+  const MIN_PROFIT_BUFFER = 0.0015;
+  const BREAKEVEN_MULT = 1 + 2 * FEE_PER_SIDE + MIN_PROFIT_BUFFER; // ~1.0035
 
   const addLog = (kind: LogEntry['kind'], msg: string) =>
     setLog((l) => [{ ts: Date.now(), kind, msg }, ...l].slice(0, 50));
@@ -79,25 +89,54 @@ export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanel
       setBusy(true);
       try {
         if (sig === 'BUY' && position === 'FLAT') {
-          addLog('info', `Signal BUY @ ${masterSignal.confidence}% conf → placing market BUY ${quoteUsdt} USDT`);
+          if (quoteUsdt < 10) {
+            addLog('skip', `Order size ${quoteUsdt} USDT below Binance min (10). Adjust order size.`);
+            lastSigRef.current = key;
+            return;
+          }
+          if (balance && balance.usdt < quoteUsdt) {
+            addLog('skip', `Insufficient USDT: have ${balance.usdt.toFixed(2)}, need ${quoteUsdt}`);
+            lastSigRef.current = key;
+            return;
+          }
+          addLog('info', `Signal BUY @ ${masterSignal.confidence}% conf → market BUY ${quoteUsdt} USDT`);
           const d = await callTrade('buy', { quoteUsdt });
-          addLog('buy', `Bought ~${quoteUsdt} USDT of BTC (order ${d.order?.orderId ?? '?'})`);
+          const fillPrice = currentPrice || (d.order?.fills?.[0]?.price ? Number(d.order.fills[0].price) : 0);
+          if (fillPrice > 0) {
+            setEntryPrice(fillPrice);
+            localStorage.setItem('bot_entry_price', String(fillPrice));
+          }
+          addLog('buy', `Bought ~${quoteUsdt} USDT of BTC @ ${fillPrice.toFixed(2)} (order ${d.order?.orderId ?? '?'})`);
           setBalance({ usdt: d.balance.usdt, btc: d.balance.btc });
           setPosition('LONG');
           lastSigRef.current = key;
         } else if (sig === 'SELL' && position === 'LONG') {
-          addLog('info', `Signal SELL @ ${masterSignal.confidence}% conf → selling entire BTC balance`);
+          // Fee-aware: only sell if price covers round-trip fees + min profit buffer
+          if (entryPrice && currentPrice > 0) {
+            const breakeven = entryPrice * BREAKEVEN_MULT;
+            if (currentPrice < breakeven) {
+              const lossPct = ((currentPrice / entryPrice - 1) * 100).toFixed(3);
+              addLog('skip', `SELL skipped — price ${currentPrice.toFixed(2)} < breakeven ${breakeven.toFixed(2)} (entry ${entryPrice.toFixed(2)}, ${lossPct}%, fees+buffer ${(((BREAKEVEN_MULT - 1) * 100)).toFixed(2)}%)`);
+              lastSigRef.current = key;
+              return;
+            }
+            const profitPct = ((currentPrice / entryPrice - 1) * 100).toFixed(3);
+            addLog('info', `Signal SELL → profitable (entry ${entryPrice.toFixed(2)} → ${currentPrice.toFixed(2)}, +${profitPct}% after fees)`);
+          } else {
+            addLog('info', `Signal SELL @ ${masterSignal.confidence}% conf → selling BTC`);
+          }
           const d = await callTrade('sell');
           if (d.order?.skipped) {
             addLog('skip', `Skipped: ${d.order.reason}`);
           } else {
             addLog('sell', `Sold BTC (order ${d.order?.orderId ?? '?'})`);
+            setEntryPrice(null);
+            localStorage.removeItem('bot_entry_price');
           }
           setBalance({ usdt: d.balance.usdt, btc: d.balance.btc });
           setPosition('FLAT');
           lastSigRef.current = key;
         } else {
-          // already in target position
           lastSigRef.current = key;
         }
       } catch (e: any) {
@@ -210,10 +249,16 @@ export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanel
             <label className="text-xs text-white/60">Order size (USDT)</label>
             <input
               type="number"
+              inputMode="decimal"
               min={10}
-              step={5}
-              value={quoteUsdt}
-              onChange={(e) => setQuoteUsdt(Math.max(10, Number(e.target.value) || 10))}
+              step={1}
+              value={quoteInput}
+              onChange={(e) => setQuoteInput(e.target.value)}
+              onBlur={() => {
+                const n = Math.max(10, Number(quoteInput) || 10);
+                setQuoteInput(String(n));
+                localStorage.setItem('bot_quote_usdt', String(n));
+              }}
               disabled={running}
               className="w-24 px-2 py-1 rounded bg-white/10 border border-white/10 text-white text-sm"
             />
