@@ -322,6 +322,38 @@ export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSig
           </div>
         </div>
 
+        {/* Scalp mode controls */}
+        <div className="px-5 py-3 border-b border-white/10 flex flex-wrap items-center gap-3 bg-white/[0.02]">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={scalpMode} onChange={(e) => setScalpMode(e.target.checked)} />
+            <Zap className={cn("w-4 h-4", scalpMode ? 'text-amber-400' : 'text-white/40')} />
+            <span className="text-xs font-bold text-white">Scalp mode (5m micro-trades)</span>
+          </label>
+          <div className="flex items-center gap-1.5 ml-auto">
+            <label className="text-[11px] text-white/60">TP %</label>
+            <input
+              type="number" step={0.05} min={0.3}
+              value={tpInput}
+              onChange={(e) => setTpInput(e.target.value)}
+              onBlur={() => setTpInput(String(Math.max(0.3, Number(tpInput) || 0.35)))}
+              disabled={running}
+              className="w-16 px-2 py-1 rounded bg-white/10 border border-white/10 text-white text-xs"
+            />
+            <label className="text-[11px] text-white/60 ml-2">SL %</label>
+            <input
+              type="number" step={0.05} min={0.1}
+              value={slInput}
+              onChange={(e) => setSlInput(e.target.value)}
+              onBlur={() => setSlInput(String(Math.max(0.1, Number(slInput) || 0.5)))}
+              disabled={running}
+              className="w-16 px-2 py-1 rounded bg-white/10 border border-white/10 text-white text-xs"
+            />
+          </div>
+          <div className="basis-full text-[10px] text-white/50">
+            Enters on 5m BUY ≥ 70% conf. Exits at +{tpPct}% (take-profit) or −{slPct}% (stop-loss), or if 5m flips to strong SELL. TP must be ≥ 0.3% to clear Binance fees.
+          </div>
+        </div>
+
         {/* Current signal preview */}
         <div className="px-5 py-3 border-b border-white/10 flex items-center justify-between text-xs">
           <div className="text-white/70">
