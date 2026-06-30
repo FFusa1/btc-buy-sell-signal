@@ -223,6 +223,8 @@ const Index = () => {
         open={botOpen}
         onClose={() => setBotOpen(false)}
         masterSignal={data?.masterSignal}
+        fiveMinSignal={data?.fiveMinSignal}
+        oneMinSignal={data?.shortTermSignal}
         currentPrice={data?.currentPrice ?? 0}
       />
     </div>;
