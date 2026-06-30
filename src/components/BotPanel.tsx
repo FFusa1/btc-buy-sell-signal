@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bot, Play, Square, Wallet, AlertTriangle } from 'lucide-react';
+import { Bot, Play, Square, Wallet, AlertTriangle, Zap } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
+
+interface MiniSignal {
+  signal: 'BUY' | 'SELL' | 'HOLD';
+  confidence: number;
+}
 
 interface BotPanelProps {
   open: boolean;
@@ -11,18 +16,20 @@ interface BotPanelProps {
     actionable: boolean;
     confidence: number;
   };
+  fiveMinSignal?: MiniSignal;
+  oneMinSignal?: MiniSignal;
   currentPrice: number;
 }
 
 type LogEntry = {
   ts: number;
-  kind: 'info' | 'buy' | 'sell' | 'error' | 'skip';
+  kind: 'info' | 'buy' | 'sell' | 'error' | 'skip' | 'scalp';
   msg: string;
 };
 
 type Position = 'FLAT' | 'LONG';
 
-export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanelProps) {
+export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSignal, currentPrice }: BotPanelProps) {
   const [running, setRunning] = useState(false);
   const [quoteInput, setQuoteInput] = useState<string>(() => localStorage.getItem('bot_quote_usdt') || '20');
   const quoteUsdt = Math.max(10, Number(quoteInput) || 0);
@@ -32,16 +39,26 @@ export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanel
     const v = localStorage.getItem('bot_entry_price');
     return v ? Number(v) : null;
   });
+  const [entrySource, setEntrySource] = useState<'master' | 'scalp' | null>(() => {
+    return (localStorage.getItem('bot_entry_source') as any) || null;
+  });
   const [log, setLog] = useState<LogEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<'testnet' | 'live'>(() => (localStorage.getItem('bot_mode') as any) || 'testnet');
   const [confirmLive, setConfirmLive] = useState(false);
+  const [scalpMode, setScalpMode] = useState<boolean>(() => localStorage.getItem('bot_scalp') === '1');
+  const [tpInput, setTpInput] = useState<string>(() => localStorage.getItem('bot_tp_pct') || '0.35');
+  const [slInput, setSlInput] = useState<string>(() => localStorage.getItem('bot_sl_pct') || '0.5');
+  const tpPct = Math.max(0.3, Number(tpInput) || 0.35); // min 0.3% to cover fees
+  const slPct = Math.max(0.1, Number(slInput) || 0.5);
   const lastSigRef = useRef<string>('');
+  const lastScalpRef = useRef<string>('');
 
   // Binance spot fee = 0.1% per side. Round-trip = 0.2%. Require extra 0.15% profit buffer.
   const FEE_PER_SIDE = 0.001;
   const MIN_PROFIT_BUFFER = 0.0015;
   const BREAKEVEN_MULT = 1 + 2 * FEE_PER_SIDE + MIN_PROFIT_BUFFER; // ~1.0035
+
 
   const addLog = (kind: LogEntry['kind'], msg: string) =>
     setLog((l) => [{ ts: Date.now(), kind, msg }, ...l].slice(0, 50));
@@ -72,82 +89,121 @@ export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanel
   }, [open, mode]);
 
   useEffect(() => { localStorage.setItem('bot_mode', mode); }, [mode]);
+  useEffect(() => { localStorage.setItem('bot_scalp', scalpMode ? '1' : '0'); }, [scalpMode]);
+  useEffect(() => { localStorage.setItem('bot_tp_pct', String(tpPct)); }, [tpPct]);
+  useEffect(() => { localStorage.setItem('bot_sl_pct', String(slPct)); }, [slPct]);
+
+  // Shared buy helper
+  const doBuy = async (source: 'master' | 'scalp', conf: number, label: string) => {
+    if (quoteUsdt < 10) { addLog('skip', `Order size ${quoteUsdt} USDT below min 10. Adjust.`); return false; }
+    if (balance && balance.usdt < quoteUsdt) { addLog('skip', `Insufficient USDT: have ${balance.usdt.toFixed(2)}, need ${quoteUsdt}`); return false; }
+    addLog('info', `${label} BUY @ ${conf}% → market BUY ${quoteUsdt} USDT`);
+    const d = await callTrade('buy', { quoteUsdt });
+    const fillPrice = currentPrice || (d.order?.fills?.[0]?.price ? Number(d.order.fills[0].price) : 0);
+    if (fillPrice > 0) {
+      setEntryPrice(fillPrice);
+      localStorage.setItem('bot_entry_price', String(fillPrice));
+    }
+    setEntrySource(source);
+    localStorage.setItem('bot_entry_source', source);
+    addLog(source === 'scalp' ? 'scalp' : 'buy', `Bought ~${quoteUsdt} USDT BTC @ ${fillPrice.toFixed(2)} [${source}]`);
+    setBalance({ usdt: d.balance.usdt, btc: d.balance.btc });
+    setPosition('LONG');
+    return true;
+  };
+
+  const doSell = async (label: string, ignoreBreakeven = false) => {
+    if (entryPrice && currentPrice > 0 && !ignoreBreakeven) {
+      const breakeven = entryPrice * BREAKEVEN_MULT;
+      if (currentPrice < breakeven) {
+        const lossPct = ((currentPrice / entryPrice - 1) * 100).toFixed(3);
+        addLog('skip', `${label} SELL skipped — ${currentPrice.toFixed(2)} < breakeven ${breakeven.toFixed(2)} (${lossPct}%)`);
+        return false;
+      }
+    }
+    const d = await callTrade('sell');
+    if (d.order?.skipped) {
+      addLog('skip', `${label}: ${d.order.reason}`);
+    } else {
+      const pnl = entryPrice ? `${((currentPrice/entryPrice - 1) * 100).toFixed(3)}%` : '?';
+      addLog('sell', `${label} SOLD BTC @ ${currentPrice.toFixed(2)} (PnL ${pnl})`);
+      setEntryPrice(null);
+      setEntrySource(null);
+      localStorage.removeItem('bot_entry_price');
+      localStorage.removeItem('bot_entry_source');
+    }
+    setBalance({ usdt: d.balance.usdt, btc: d.balance.btc });
+    setPosition('FLAT');
+    return true;
+  };
 
   // Bot loop — react to actionable master signal
   useEffect(() => {
     if (!running || !masterSignal || busy) return;
     if (!masterSignal.actionable) return;
-
     const sig = masterSignal.signal;
     if (sig === 'HOLD') return;
-
-    // Dedupe — only act when signal flips
-    const key = `${sig}-${position}`;
+    const key = `M-${sig}-${position}`;
     if (lastSigRef.current === key) return;
 
-    const execute = async () => {
+    (async () => {
       setBusy(true);
       try {
         if (sig === 'BUY' && position === 'FLAT') {
-          if (quoteUsdt < 10) {
-            addLog('skip', `Order size ${quoteUsdt} USDT below Binance min (10). Adjust order size.`);
-            lastSigRef.current = key;
-            return;
-          }
-          if (balance && balance.usdt < quoteUsdt) {
-            addLog('skip', `Insufficient USDT: have ${balance.usdt.toFixed(2)}, need ${quoteUsdt}`);
-            lastSigRef.current = key;
-            return;
-          }
-          addLog('info', `Signal BUY @ ${masterSignal.confidence}% conf → market BUY ${quoteUsdt} USDT`);
-          const d = await callTrade('buy', { quoteUsdt });
-          const fillPrice = currentPrice || (d.order?.fills?.[0]?.price ? Number(d.order.fills[0].price) : 0);
-          if (fillPrice > 0) {
-            setEntryPrice(fillPrice);
-            localStorage.setItem('bot_entry_price', String(fillPrice));
-          }
-          addLog('buy', `Bought ~${quoteUsdt} USDT of BTC @ ${fillPrice.toFixed(2)} (order ${d.order?.orderId ?? '?'})`);
-          setBalance({ usdt: d.balance.usdt, btc: d.balance.btc });
-          setPosition('LONG');
-          lastSigRef.current = key;
+          await doBuy('master', masterSignal.confidence, 'Master');
         } else if (sig === 'SELL' && position === 'LONG') {
-          // Fee-aware: only sell if price covers round-trip fees + min profit buffer
-          if (entryPrice && currentPrice > 0) {
-            const breakeven = entryPrice * BREAKEVEN_MULT;
-            if (currentPrice < breakeven) {
-              const lossPct = ((currentPrice / entryPrice - 1) * 100).toFixed(3);
-              addLog('skip', `SELL skipped — price ${currentPrice.toFixed(2)} < breakeven ${breakeven.toFixed(2)} (entry ${entryPrice.toFixed(2)}, ${lossPct}%, fees+buffer ${(((BREAKEVEN_MULT - 1) * 100)).toFixed(2)}%)`);
-              lastSigRef.current = key;
-              return;
-            }
-            const profitPct = ((currentPrice / entryPrice - 1) * 100).toFixed(3);
-            addLog('info', `Signal SELL → profitable (entry ${entryPrice.toFixed(2)} → ${currentPrice.toFixed(2)}, +${profitPct}% after fees)`);
-          } else {
-            addLog('info', `Signal SELL @ ${masterSignal.confidence}% conf → selling BTC`);
-          }
-          const d = await callTrade('sell');
-          if (d.order?.skipped) {
-            addLog('skip', `Skipped: ${d.order.reason}`);
-          } else {
-            addLog('sell', `Sold BTC (order ${d.order?.orderId ?? '?'})`);
-            setEntryPrice(null);
-            localStorage.removeItem('bot_entry_price');
-          }
-          setBalance({ usdt: d.balance.usdt, btc: d.balance.btc });
-          setPosition('FLAT');
-          lastSigRef.current = key;
-        } else {
-          lastSigRef.current = key;
+          await doSell('Master');
         }
+        lastSigRef.current = key;
       } catch (e: any) {
         addLog('error', `Trade failed: ${e.message}`);
-      } finally {
-        setBusy(false);
-      }
-    };
-    execute();
+      } finally { setBusy(false); }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [masterSignal?.signal, masterSignal?.actionable, running, position]);
+
+  // SCALP entry loop — react to 5m short-term BUY signals for micro-trades
+  useEffect(() => {
+    if (!running || !scalpMode || busy) return;
+    if (position !== 'FLAT') return;
+    const s = fiveMinSignal;
+    if (!s || s.signal !== 'BUY' || s.confidence < 70) return;
+    // Optional 1m confirmation: don't enter if 1m is strongly bearish
+    if (oneMinSignal && oneMinSignal.signal === 'SELL' && oneMinSignal.confidence >= 65) return;
+    const key = `S-${s.signal}-${s.confidence}`;
+    if (lastScalpRef.current === key) return;
+    lastScalpRef.current = key;
+    (async () => {
+      setBusy(true);
+      try { await doBuy('scalp', s.confidence, 'Scalp (5m)'); }
+      catch (e: any) { addLog('error', `Scalp buy failed: ${e.message}`); }
+      finally { setBusy(false); }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fiveMinSignal?.signal, fiveMinSignal?.confidence, running, scalpMode, position]);
+
+  // SCALP exit watcher — take-profit / stop-loss every price tick when scalp position open
+  useEffect(() => {
+    if (!running || busy || position !== 'LONG' || !entryPrice || !currentPrice) return;
+    if (entrySource !== 'scalp') return;
+    const change = (currentPrice / entryPrice - 1) * 100;
+    const hitTP = change >= tpPct;
+    const hitSL = change <= -slPct;
+    // Also exit if 5m flips to strong SELL
+    const flipSell = fiveMinSignal?.signal === 'SELL' && (fiveMinSignal?.confidence ?? 0) >= 70;
+    if (!hitTP && !hitSL && !flipSell) return;
+    (async () => {
+      setBusy(true);
+      try {
+        const label = hitTP ? `Scalp TP +${change.toFixed(3)}%` : hitSL ? `Scalp SL ${change.toFixed(3)}%` : `Scalp flip-SELL`;
+        // Stop-loss & flip-sell bypass breakeven guard (cut losses)
+        await doSell(label, hitSL || flipSell);
+      } catch (e: any) { addLog('error', `Scalp exit failed: ${e.message}`); }
+      finally { setBusy(false); }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPrice, fiveMinSignal?.signal, running, position, entrySource]);
+
 
   if (!open) return null;
 
@@ -263,6 +319,38 @@ export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanel
               className="w-24 px-2 py-1 rounded bg-white/10 border border-white/10 text-white text-sm"
             />
             <button onClick={refreshBalance} className="text-xs text-white/60 hover:text-white underline">refresh</button>
+          </div>
+        </div>
+
+        {/* Scalp mode controls */}
+        <div className="px-5 py-3 border-b border-white/10 flex flex-wrap items-center gap-3 bg-white/[0.02]">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={scalpMode} onChange={(e) => setScalpMode(e.target.checked)} />
+            <Zap className={cn("w-4 h-4", scalpMode ? 'text-amber-400' : 'text-white/40')} />
+            <span className="text-xs font-bold text-white">Scalp mode (5m micro-trades)</span>
+          </label>
+          <div className="flex items-center gap-1.5 ml-auto">
+            <label className="text-[11px] text-white/60">TP %</label>
+            <input
+              type="number" step={0.05} min={0.3}
+              value={tpInput}
+              onChange={(e) => setTpInput(e.target.value)}
+              onBlur={() => setTpInput(String(Math.max(0.3, Number(tpInput) || 0.35)))}
+              disabled={running}
+              className="w-16 px-2 py-1 rounded bg-white/10 border border-white/10 text-white text-xs"
+            />
+            <label className="text-[11px] text-white/60 ml-2">SL %</label>
+            <input
+              type="number" step={0.05} min={0.1}
+              value={slInput}
+              onChange={(e) => setSlInput(e.target.value)}
+              onBlur={() => setSlInput(String(Math.max(0.1, Number(slInput) || 0.5)))}
+              disabled={running}
+              className="w-16 px-2 py-1 rounded bg-white/10 border border-white/10 text-white text-xs"
+            />
+          </div>
+          <div className="basis-full text-[10px] text-white/50">
+            Enters on 5m BUY ≥ 70% conf. Exits at +{tpPct}% (take-profit) or −{slPct}% (stop-loss), or if 5m flips to strong SELL. TP must be ≥ 0.3% to clear Binance fees.
           </div>
         </div>
 
