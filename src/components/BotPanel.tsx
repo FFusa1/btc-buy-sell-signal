@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bot, Play, Square, Wallet, AlertTriangle } from 'lucide-react';
+import { Bot, Play, Square, Wallet, AlertTriangle, Zap } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
+
+interface MiniSignal {
+  signal: 'BUY' | 'SELL' | 'HOLD';
+  confidence: number;
+}
 
 interface BotPanelProps {
   open: boolean;
@@ -11,18 +16,20 @@ interface BotPanelProps {
     actionable: boolean;
     confidence: number;
   };
+  fiveMinSignal?: MiniSignal;
+  oneMinSignal?: MiniSignal;
   currentPrice: number;
 }
 
 type LogEntry = {
   ts: number;
-  kind: 'info' | 'buy' | 'sell' | 'error' | 'skip';
+  kind: 'info' | 'buy' | 'sell' | 'error' | 'skip' | 'scalp';
   msg: string;
 };
 
 type Position = 'FLAT' | 'LONG';
 
-export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanelProps) {
+export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSignal, currentPrice }: BotPanelProps) {
   const [running, setRunning] = useState(false);
   const [quoteInput, setQuoteInput] = useState<string>(() => localStorage.getItem('bot_quote_usdt') || '20');
   const quoteUsdt = Math.max(10, Number(quoteInput) || 0);
@@ -32,16 +39,26 @@ export function BotPanel({ open, onClose, masterSignal, currentPrice }: BotPanel
     const v = localStorage.getItem('bot_entry_price');
     return v ? Number(v) : null;
   });
+  const [entrySource, setEntrySource] = useState<'master' | 'scalp' | null>(() => {
+    return (localStorage.getItem('bot_entry_source') as any) || null;
+  });
   const [log, setLog] = useState<LogEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<'testnet' | 'live'>(() => (localStorage.getItem('bot_mode') as any) || 'testnet');
   const [confirmLive, setConfirmLive] = useState(false);
+  const [scalpMode, setScalpMode] = useState<boolean>(() => localStorage.getItem('bot_scalp') === '1');
+  const [tpInput, setTpInput] = useState<string>(() => localStorage.getItem('bot_tp_pct') || '0.35');
+  const [slInput, setSlInput] = useState<string>(() => localStorage.getItem('bot_sl_pct') || '0.5');
+  const tpPct = Math.max(0.3, Number(tpInput) || 0.35); // min 0.3% to cover fees
+  const slPct = Math.max(0.1, Number(slInput) || 0.5);
   const lastSigRef = useRef<string>('');
+  const lastScalpRef = useRef<string>('');
 
   // Binance spot fee = 0.1% per side. Round-trip = 0.2%. Require extra 0.15% profit buffer.
   const FEE_PER_SIDE = 0.001;
   const MIN_PROFIT_BUFFER = 0.0015;
   const BREAKEVEN_MULT = 1 + 2 * FEE_PER_SIDE + MIN_PROFIT_BUFFER; // ~1.0035
+
 
   const addLog = (kind: LogEntry['kind'], msg: string) =>
     setLog((l) => [{ ts: Date.now(), kind, msg }, ...l].slice(0, 50));
