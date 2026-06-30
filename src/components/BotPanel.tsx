@@ -89,82 +89,121 @@ export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSig
   }, [open, mode]);
 
   useEffect(() => { localStorage.setItem('bot_mode', mode); }, [mode]);
+  useEffect(() => { localStorage.setItem('bot_scalp', scalpMode ? '1' : '0'); }, [scalpMode]);
+  useEffect(() => { localStorage.setItem('bot_tp_pct', String(tpPct)); }, [tpPct]);
+  useEffect(() => { localStorage.setItem('bot_sl_pct', String(slPct)); }, [slPct]);
+
+  // Shared buy helper
+  const doBuy = async (source: 'master' | 'scalp', conf: number, label: string) => {
+    if (quoteUsdt < 10) { addLog('skip', `Order size ${quoteUsdt} USDT below min 10. Adjust.`); return false; }
+    if (balance && balance.usdt < quoteUsdt) { addLog('skip', `Insufficient USDT: have ${balance.usdt.toFixed(2)}, need ${quoteUsdt}`); return false; }
+    addLog('info', `${label} BUY @ ${conf}% → market BUY ${quoteUsdt} USDT`);
+    const d = await callTrade('buy', { quoteUsdt });
+    const fillPrice = currentPrice || (d.order?.fills?.[0]?.price ? Number(d.order.fills[0].price) : 0);
+    if (fillPrice > 0) {
+      setEntryPrice(fillPrice);
+      localStorage.setItem('bot_entry_price', String(fillPrice));
+    }
+    setEntrySource(source);
+    localStorage.setItem('bot_entry_source', source);
+    addLog(source === 'scalp' ? 'scalp' : 'buy', `Bought ~${quoteUsdt} USDT BTC @ ${fillPrice.toFixed(2)} [${source}]`);
+    setBalance({ usdt: d.balance.usdt, btc: d.balance.btc });
+    setPosition('LONG');
+    return true;
+  };
+
+  const doSell = async (label: string, ignoreBreakeven = false) => {
+    if (entryPrice && currentPrice > 0 && !ignoreBreakeven) {
+      const breakeven = entryPrice * BREAKEVEN_MULT;
+      if (currentPrice < breakeven) {
+        const lossPct = ((currentPrice / entryPrice - 1) * 100).toFixed(3);
+        addLog('skip', `${label} SELL skipped — ${currentPrice.toFixed(2)} < breakeven ${breakeven.toFixed(2)} (${lossPct}%)`);
+        return false;
+      }
+    }
+    const d = await callTrade('sell');
+    if (d.order?.skipped) {
+      addLog('skip', `${label}: ${d.order.reason}`);
+    } else {
+      const pnl = entryPrice ? `${((currentPrice/entryPrice - 1) * 100).toFixed(3)}%` : '?';
+      addLog('sell', `${label} SOLD BTC @ ${currentPrice.toFixed(2)} (PnL ${pnl})`);
+      setEntryPrice(null);
+      setEntrySource(null);
+      localStorage.removeItem('bot_entry_price');
+      localStorage.removeItem('bot_entry_source');
+    }
+    setBalance({ usdt: d.balance.usdt, btc: d.balance.btc });
+    setPosition('FLAT');
+    return true;
+  };
 
   // Bot loop — react to actionable master signal
   useEffect(() => {
     if (!running || !masterSignal || busy) return;
     if (!masterSignal.actionable) return;
-
     const sig = masterSignal.signal;
     if (sig === 'HOLD') return;
-
-    // Dedupe — only act when signal flips
-    const key = `${sig}-${position}`;
+    const key = `M-${sig}-${position}`;
     if (lastSigRef.current === key) return;
 
-    const execute = async () => {
+    (async () => {
       setBusy(true);
       try {
         if (sig === 'BUY' && position === 'FLAT') {
-          if (quoteUsdt < 10) {
-            addLog('skip', `Order size ${quoteUsdt} USDT below Binance min (10). Adjust order size.`);
-            lastSigRef.current = key;
-            return;
-          }
-          if (balance && balance.usdt < quoteUsdt) {
-            addLog('skip', `Insufficient USDT: have ${balance.usdt.toFixed(2)}, need ${quoteUsdt}`);
-            lastSigRef.current = key;
-            return;
-          }
-          addLog('info', `Signal BUY @ ${masterSignal.confidence}% conf → market BUY ${quoteUsdt} USDT`);
-          const d = await callTrade('buy', { quoteUsdt });
-          const fillPrice = currentPrice || (d.order?.fills?.[0]?.price ? Number(d.order.fills[0].price) : 0);
-          if (fillPrice > 0) {
-            setEntryPrice(fillPrice);
-            localStorage.setItem('bot_entry_price', String(fillPrice));
-          }
-          addLog('buy', `Bought ~${quoteUsdt} USDT of BTC @ ${fillPrice.toFixed(2)} (order ${d.order?.orderId ?? '?'})`);
-          setBalance({ usdt: d.balance.usdt, btc: d.balance.btc });
-          setPosition('LONG');
-          lastSigRef.current = key;
+          await doBuy('master', masterSignal.confidence, 'Master');
         } else if (sig === 'SELL' && position === 'LONG') {
-          // Fee-aware: only sell if price covers round-trip fees + min profit buffer
-          if (entryPrice && currentPrice > 0) {
-            const breakeven = entryPrice * BREAKEVEN_MULT;
-            if (currentPrice < breakeven) {
-              const lossPct = ((currentPrice / entryPrice - 1) * 100).toFixed(3);
-              addLog('skip', `SELL skipped — price ${currentPrice.toFixed(2)} < breakeven ${breakeven.toFixed(2)} (entry ${entryPrice.toFixed(2)}, ${lossPct}%, fees+buffer ${(((BREAKEVEN_MULT - 1) * 100)).toFixed(2)}%)`);
-              lastSigRef.current = key;
-              return;
-            }
-            const profitPct = ((currentPrice / entryPrice - 1) * 100).toFixed(3);
-            addLog('info', `Signal SELL → profitable (entry ${entryPrice.toFixed(2)} → ${currentPrice.toFixed(2)}, +${profitPct}% after fees)`);
-          } else {
-            addLog('info', `Signal SELL @ ${masterSignal.confidence}% conf → selling BTC`);
-          }
-          const d = await callTrade('sell');
-          if (d.order?.skipped) {
-            addLog('skip', `Skipped: ${d.order.reason}`);
-          } else {
-            addLog('sell', `Sold BTC (order ${d.order?.orderId ?? '?'})`);
-            setEntryPrice(null);
-            localStorage.removeItem('bot_entry_price');
-          }
-          setBalance({ usdt: d.balance.usdt, btc: d.balance.btc });
-          setPosition('FLAT');
-          lastSigRef.current = key;
-        } else {
-          lastSigRef.current = key;
+          await doSell('Master');
         }
+        lastSigRef.current = key;
       } catch (e: any) {
         addLog('error', `Trade failed: ${e.message}`);
-      } finally {
-        setBusy(false);
-      }
-    };
-    execute();
+      } finally { setBusy(false); }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [masterSignal?.signal, masterSignal?.actionable, running, position]);
+
+  // SCALP entry loop — react to 5m short-term BUY signals for micro-trades
+  useEffect(() => {
+    if (!running || !scalpMode || busy) return;
+    if (position !== 'FLAT') return;
+    const s = fiveMinSignal;
+    if (!s || s.signal !== 'BUY' || s.confidence < 70) return;
+    // Optional 1m confirmation: don't enter if 1m is strongly bearish
+    if (oneMinSignal && oneMinSignal.signal === 'SELL' && oneMinSignal.confidence >= 65) return;
+    const key = `S-${s.signal}-${s.confidence}`;
+    if (lastScalpRef.current === key) return;
+    lastScalpRef.current = key;
+    (async () => {
+      setBusy(true);
+      try { await doBuy('scalp', s.confidence, 'Scalp (5m)'); }
+      catch (e: any) { addLog('error', `Scalp buy failed: ${e.message}`); }
+      finally { setBusy(false); }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fiveMinSignal?.signal, fiveMinSignal?.confidence, running, scalpMode, position]);
+
+  // SCALP exit watcher — take-profit / stop-loss every price tick when scalp position open
+  useEffect(() => {
+    if (!running || busy || position !== 'LONG' || !entryPrice || !currentPrice) return;
+    if (entrySource !== 'scalp') return;
+    const change = (currentPrice / entryPrice - 1) * 100;
+    const hitTP = change >= tpPct;
+    const hitSL = change <= -slPct;
+    // Also exit if 5m flips to strong SELL
+    const flipSell = fiveMinSignal?.signal === 'SELL' && (fiveMinSignal?.confidence ?? 0) >= 70;
+    if (!hitTP && !hitSL && !flipSell) return;
+    (async () => {
+      setBusy(true);
+      try {
+        const label = hitTP ? `Scalp TP +${change.toFixed(3)}%` : hitSL ? `Scalp SL ${change.toFixed(3)}%` : `Scalp flip-SELL`;
+        // Stop-loss & flip-sell bypass breakeven guard (cut losses)
+        await doSell(label, hitSL || flipSell);
+      } catch (e: any) { addLog('error', `Scalp exit failed: ${e.message}`); }
+      finally { setBusy(false); }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPrice, fiveMinSignal?.signal, running, position, entrySource]);
+
 
   if (!open) return null;
 
