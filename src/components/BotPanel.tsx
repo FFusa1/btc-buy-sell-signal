@@ -49,10 +49,14 @@ export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSig
   const [scalpMode, setScalpMode] = useState<boolean>(() => localStorage.getItem('bot_scalp') === '1');
   const [tpInput, setTpInput] = useState<string>(() => localStorage.getItem('bot_tp_pct') || '0.35');
   const [slInput, setSlInput] = useState<string>(() => localStorage.getItem('bot_sl_pct') || '0.5');
-  const tpPct = Math.max(0.3, Number(tpInput) || 0.35); // min 0.3% to cover fees
+  const [trailInput, setTrailInput] = useState<string>(() => localStorage.getItem('bot_trail_pct') || '0.15');
+  const tpPct = Math.max(0.3, Number(tpInput) || 0.35); // min 0.3% to cover fees (arm trailing)
   const slPct = Math.max(0.1, Number(slInput) || 0.5);
+  const trailPct = Math.max(0.05, Number(trailInput) || 0.15);
   const lastSigRef = useRef<string>('');
   const lastScalpRef = useRef<string>('');
+  const peakRef = useRef<number>(0);
+  const trailingRef = useRef<boolean>(false);
 
   // Binance spot fee = 0.1% per side. Round-trip = 0.2%. Require extra 0.15% profit buffer.
   const FEE_PER_SIDE = 0.001;
@@ -92,6 +96,7 @@ export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSig
   useEffect(() => { localStorage.setItem('bot_scalp', scalpMode ? '1' : '0'); }, [scalpMode]);
   useEffect(() => { localStorage.setItem('bot_tp_pct', String(tpPct)); }, [tpPct]);
   useEffect(() => { localStorage.setItem('bot_sl_pct', String(slPct)); }, [slPct]);
+  useEffect(() => { localStorage.setItem('bot_trail_pct', String(trailPct)); }, [trailPct]);
 
   // Shared buy helper
   const doBuy = async (source: 'master' | 'scalp', conf: number, label: string) => {
@@ -106,6 +111,8 @@ export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSig
     }
     setEntrySource(source);
     localStorage.setItem('bot_entry_source', source);
+    peakRef.current = fillPrice || currentPrice || 0;
+    trailingRef.current = false;
     addLog(source === 'scalp' ? 'scalp' : 'buy', `Bought ~${quoteUsdt} USDT BTC @ ${fillPrice.toFixed(2)} [${source}]`);
     setBalance({ usdt: d.balance.usdt, btc: d.balance.btc });
     setPosition('LONG');
@@ -193,22 +200,41 @@ export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSig
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fiveMinSignal?.signal, fiveMinSignal?.confidence, running, scalpMode, position]);
 
-  // SCALP exit watcher — take-profit / stop-loss every price tick when scalp position open
+  // SCALP exit watcher — trailing take-profit / stop-loss on every price tick
   useEffect(() => {
     if (!running || busy || position !== 'LONG' || !entryPrice || !currentPrice) return;
     if (entrySource !== 'scalp') return;
     const change = (currentPrice / entryPrice - 1) * 100;
-    const hitTP = change >= tpPct;
     const hitSL = change <= -slPct;
-    // Also exit if 5m flips to strong SELL
     const flipSell = fiveMinSignal?.signal === 'SELL' && (fiveMinSignal?.confidence ?? 0) >= 70;
-    if (!hitTP && !hitSL && !flipSell) return;
+
+    // Arm trailing once TP threshold is reached — then let profits run
+    if (!trailingRef.current && change >= tpPct) {
+      trailingRef.current = true;
+      peakRef.current = currentPrice;
+      addLog('scalp', `Trailing armed @ +${change.toFixed(3)}% — will ride uptrend, exit on ${trailPct}% pullback from peak`);
+    }
+
+    // Track new peaks while trailing
+    if (trailingRef.current && currentPrice > peakRef.current) {
+      peakRef.current = currentPrice;
+    }
+
+    // Trailing exit: price dropped trailPct% off peak (but still above entry+fees)
+    const trailStop = trailingRef.current ? peakRef.current * (1 - trailPct / 100) : 0;
+    const hitTrail = trailingRef.current && currentPrice <= trailStop && currentPrice >= entryPrice * BREAKEVEN_MULT;
+
+    if (!hitSL && !flipSell && !hitTrail) return;
     (async () => {
       setBusy(true);
       try {
-        const label = hitTP ? `Scalp TP +${change.toFixed(3)}%` : hitSL ? `Scalp SL ${change.toFixed(3)}%` : `Scalp flip-SELL`;
-        // Stop-loss & flip-sell bypass breakeven guard (cut losses)
+        const peakChange = ((peakRef.current / entryPrice - 1) * 100).toFixed(3);
+        const label = hitTrail
+          ? `Scalp Trail-exit +${change.toFixed(3)}% (peak +${peakChange}%)`
+          : hitSL ? `Scalp SL ${change.toFixed(3)}%` : `Scalp flip-SELL`;
         await doSell(label, hitSL || flipSell);
+        trailingRef.current = false;
+        peakRef.current = 0;
       } catch (e: any) { addLog('error', `Scalp exit failed: ${e.message}`); }
       finally { setBusy(false); }
     })();
@@ -359,9 +385,18 @@ export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSig
               disabled={running}
               className="w-16 px-2 py-1 rounded bg-white/10 border border-white/10 text-white text-xs"
             />
+            <label className="text-[11px] text-white/60 ml-2">Trail %</label>
+            <input
+              type="number" step={0.05} min={0.05}
+              value={trailInput}
+              onChange={(e) => setTrailInput(e.target.value)}
+              onBlur={() => setTrailInput(String(Math.max(0.05, Number(trailInput) || 0.15)))}
+              disabled={running}
+              className="w-16 px-2 py-1 rounded bg-white/10 border border-white/10 text-white text-xs"
+            />
           </div>
           <div className="basis-full text-[10px] text-white/50">
-            Enters on 5m BUY ≥ 70% conf. Exits at +{tpPct}% (take-profit) or −{slPct}% (stop-loss), or if 5m flips to strong SELL. TP must be ≥ 0.3% to clear Binance fees.
+            Enters on 5m BUY ≥ 70% conf. Once price passes +{tpPct}% take-profit, a trailing stop arms and rides the uptrend — exits only when price pulls back {trailPct}% from the peak (locking in max profit). Hard stop-loss at −{slPct}%, or if 5m flips to strong SELL.
           </div>
         </div>
 
