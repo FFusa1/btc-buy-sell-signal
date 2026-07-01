@@ -385,9 +385,18 @@ export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSig
               disabled={running}
               className="w-16 px-2 py-1 rounded bg-white/10 border border-white/10 text-white text-xs"
             />
+            <label className="text-[11px] text-white/60 ml-2">Trail %</label>
+            <input
+              type="number" step={0.05} min={0.05}
+              value={trailInput}
+              onChange={(e) => setTrailInput(e.target.value)}
+              onBlur={() => setTrailInput(String(Math.max(0.05, Number(trailInput) || 0.15)))}
+              disabled={running}
+              className="w-16 px-2 py-1 rounded bg-white/10 border border-white/10 text-white text-xs"
+            />
           </div>
           <div className="basis-full text-[10px] text-white/50">
-            Enters on 5m BUY ≥ 70% conf. Exits at +{tpPct}% (take-profit) or −{slPct}% (stop-loss), or if 5m flips to strong SELL. TP must be ≥ 0.3% to clear Binance fees.
+            Enters on 5m BUY ≥ 70% conf. Once price passes +{tpPct}% take-profit, a trailing stop arms and rides the uptrend — exits only when price pulls back {trailPct}% from the peak (locking in max profit). Hard stop-loss at −{slPct}%, or if 5m flips to strong SELL.
           </div>
         </div>
 
