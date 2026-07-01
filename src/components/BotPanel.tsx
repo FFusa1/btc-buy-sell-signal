@@ -140,10 +140,17 @@ export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSig
   // Bot loop — react to actionable master signal
   useEffect(() => {
     if (!running || !masterSignal || busy) return;
-    if (!masterSignal.actionable) return;
+    if (!masterSignal.actionable) {
+      const key = `NA-${masterSignal.signal}-${masterSignal.confidence}`;
+      if (lastSigRef.current !== key) {
+        lastSigRef.current = key;
+        addLog('skip', `Master ${masterSignal.signal} ${masterSignal.confidence}% — not actionable (waiting for confluence)`);
+      }
+      return;
+    }
     const sig = masterSignal.signal;
     if (sig === 'HOLD') return;
-    const key = `M-${sig}-${position}`;
+    const key = `M-${sig}-${position}-${masterSignal.confidence}`;
     if (lastSigRef.current === key) return;
 
     (async () => {
@@ -153,6 +160,10 @@ export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSig
           await doBuy('master', masterSignal.confidence, 'Master');
         } else if (sig === 'SELL' && position === 'LONG') {
           await doSell('Master');
+        } else if (sig === 'BUY' && position === 'LONG') {
+          addLog('skip', `Master BUY ignored — already LONG (${balance?.btc.toFixed(6) ?? '?'} BTC held). Waiting for SELL.`);
+        } else if (sig === 'SELL' && position === 'FLAT') {
+          addLog('skip', `Master SELL ignored — no BTC to sell (position FLAT).`);
         }
         lastSigRef.current = key;
       } catch (e: any) {
@@ -160,7 +171,7 @@ export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSig
       } finally { setBusy(false); }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [masterSignal?.signal, masterSignal?.actionable, running, position]);
+  }, [masterSignal?.signal, masterSignal?.actionable, masterSignal?.confidence, running, position]);
 
   // SCALP entry loop — react to 5m short-term BUY signals for micro-trades
   useEffect(() => {
