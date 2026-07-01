@@ -96,6 +96,7 @@ export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSig
   useEffect(() => { localStorage.setItem('bot_scalp', scalpMode ? '1' : '0'); }, [scalpMode]);
   useEffect(() => { localStorage.setItem('bot_tp_pct', String(tpPct)); }, [tpPct]);
   useEffect(() => { localStorage.setItem('bot_sl_pct', String(slPct)); }, [slPct]);
+  useEffect(() => { localStorage.setItem('bot_trail_pct', String(trailPct)); }, [trailPct]);
 
   // Shared buy helper
   const doBuy = async (source: 'master' | 'scalp', conf: number, label: string) => {
@@ -110,6 +111,8 @@ export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSig
     }
     setEntrySource(source);
     localStorage.setItem('bot_entry_source', source);
+    peakRef.current = fillPrice || currentPrice || 0;
+    trailingRef.current = false;
     addLog(source === 'scalp' ? 'scalp' : 'buy', `Bought ~${quoteUsdt} USDT BTC @ ${fillPrice.toFixed(2)} [${source}]`);
     setBalance({ usdt: d.balance.usdt, btc: d.balance.btc });
     setPosition('LONG');
