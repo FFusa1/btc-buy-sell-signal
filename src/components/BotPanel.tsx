@@ -200,22 +200,41 @@ export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSig
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fiveMinSignal?.signal, fiveMinSignal?.confidence, running, scalpMode, position]);
 
-  // SCALP exit watcher — take-profit / stop-loss every price tick when scalp position open
+  // SCALP exit watcher — trailing take-profit / stop-loss on every price tick
   useEffect(() => {
     if (!running || busy || position !== 'LONG' || !entryPrice || !currentPrice) return;
     if (entrySource !== 'scalp') return;
     const change = (currentPrice / entryPrice - 1) * 100;
-    const hitTP = change >= tpPct;
     const hitSL = change <= -slPct;
-    // Also exit if 5m flips to strong SELL
     const flipSell = fiveMinSignal?.signal === 'SELL' && (fiveMinSignal?.confidence ?? 0) >= 70;
-    if (!hitTP && !hitSL && !flipSell) return;
+
+    // Arm trailing once TP threshold is reached — then let profits run
+    if (!trailingRef.current && change >= tpPct) {
+      trailingRef.current = true;
+      peakRef.current = currentPrice;
+      addLog('scalp', `Trailing armed @ +${change.toFixed(3)}% — will ride uptrend, exit on ${trailPct}% pullback from peak`);
+    }
+
+    // Track new peaks while trailing
+    if (trailingRef.current && currentPrice > peakRef.current) {
+      peakRef.current = currentPrice;
+    }
+
+    // Trailing exit: price dropped trailPct% off peak (but still above entry+fees)
+    const trailStop = trailingRef.current ? peakRef.current * (1 - trailPct / 100) : 0;
+    const hitTrail = trailingRef.current && currentPrice <= trailStop && currentPrice >= entryPrice * BREAKEVEN_MULT;
+
+    if (!hitSL && !flipSell && !hitTrail) return;
     (async () => {
       setBusy(true);
       try {
-        const label = hitTP ? `Scalp TP +${change.toFixed(3)}%` : hitSL ? `Scalp SL ${change.toFixed(3)}%` : `Scalp flip-SELL`;
-        // Stop-loss & flip-sell bypass breakeven guard (cut losses)
+        const peakChange = ((peakRef.current / entryPrice - 1) * 100).toFixed(3);
+        const label = hitTrail
+          ? `Scalp Trail-exit +${change.toFixed(3)}% (peak +${peakChange}%)`
+          : hitSL ? `Scalp SL ${change.toFixed(3)}%` : `Scalp flip-SELL`;
         await doSell(label, hitSL || flipSell);
+        trailingRef.current = false;
+        peakRef.current = 0;
       } catch (e: any) { addLog('error', `Scalp exit failed: ${e.message}`); }
       finally { setBusy(false); }
     })();
