@@ -49,10 +49,14 @@ export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSig
   const [scalpMode, setScalpMode] = useState<boolean>(() => localStorage.getItem('bot_scalp') === '1');
   const [tpInput, setTpInput] = useState<string>(() => localStorage.getItem('bot_tp_pct') || '0.35');
   const [slInput, setSlInput] = useState<string>(() => localStorage.getItem('bot_sl_pct') || '0.5');
-  const tpPct = Math.max(0.3, Number(tpInput) || 0.35); // min 0.3% to cover fees
+  const [trailInput, setTrailInput] = useState<string>(() => localStorage.getItem('bot_trail_pct') || '0.15');
+  const tpPct = Math.max(0.3, Number(tpInput) || 0.35); // min 0.3% to cover fees (arm trailing)
   const slPct = Math.max(0.1, Number(slInput) || 0.5);
+  const trailPct = Math.max(0.05, Number(trailInput) || 0.15);
   const lastSigRef = useRef<string>('');
   const lastScalpRef = useRef<string>('');
+  const peakRef = useRef<number>(0);
+  const trailingRef = useRef<boolean>(false);
 
   // Binance spot fee = 0.1% per side. Round-trip = 0.2%. Require extra 0.15% profit buffer.
   const FEE_PER_SIDE = 0.001;
