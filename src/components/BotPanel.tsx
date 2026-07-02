@@ -219,7 +219,10 @@ export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSig
     if (entrySource !== 'scalp') return;
     const change = (currentPrice / entryPrice - 1) * 100;
     const hitSL = change <= -slPct;
-    const flipSell = fiveMinSignal?.signal === 'SELL' && (fiveMinSignal?.confidence ?? 0) >= 70;
+    // Flip-SELL on EITHER 1m or 5m turning bearish (1m reacts faster)
+    const flipSell =
+      (oneMinSignal?.signal === 'SELL' && (oneMinSignal?.confidence ?? 0) >= 65) ||
+      (fiveMinSignal?.signal === 'SELL' && (fiveMinSignal?.confidence ?? 0) >= 70);
 
     // Arm trailing once TP threshold is reached — then let profits run
     if (!trailingRef.current && change >= tpPct) {
@@ -252,7 +255,7 @@ export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSig
       finally { setBusy(false); }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPrice, fiveMinSignal?.signal, running, position, entrySource]);
+  }, [currentPrice, fiveMinSignal?.signal, oneMinSignal?.signal, running, position, entrySource]);
 
 
   if (!open) return null;
