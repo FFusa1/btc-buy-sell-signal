@@ -180,25 +180,38 @@ export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSig
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [masterSignal?.signal, masterSignal?.actionable, masterSignal?.confidence, running, position]);
 
-  // SCALP entry loop — react to 5m short-term BUY signals for micro-trades
+  // SCALP entry loop — SHORT-PERIOD trader.
+  // Fires on ANY of:
+  //   • 1m BUY ≥ 60%  (fastest: catches surges within seconds)
+  //   • 5m BUY ≥ 65%  (confirms micro-uptrend)
+  // Independent of master signal / 1h trend so it catches short-term spikes
+  // even when the broader trend says HOLD/SELL.
   useEffect(() => {
     if (!running || !scalpMode || busy) return;
     if (position !== 'FLAT') return;
-    const s = fiveMinSignal;
-    if (!s || s.signal !== 'BUY' || s.confidence < 70) return;
-    // Optional 1m confirmation: don't enter if 1m is strongly bearish
-    if (oneMinSignal && oneMinSignal.signal === 'SELL' && oneMinSignal.confidence >= 65) return;
-    const key = `S-${s.signal}-${s.confidence}`;
+
+    const one = oneMinSignal;
+    const five = fiveMinSignal;
+    const oneBuy = one && one.signal === 'BUY' && one.confidence >= 60;
+    const fiveBuy = five && five.signal === 'BUY' && five.confidence >= 65;
+    if (!oneBuy && !fiveBuy) return;
+
+    // Only veto if BOTH 1m and 5m turn strongly bearish
+    if (one?.signal === 'SELL' && one.confidence >= 70 && five?.signal === 'SELL' && five.confidence >= 70) return;
+
+    const trigger = oneBuy ? '1m' : '5m';
+    const conf = oneBuy ? one!.confidence : five!.confidence;
+    const key = `S-${trigger}-${conf}`;
     if (lastScalpRef.current === key) return;
     lastScalpRef.current = key;
     (async () => {
       setBusy(true);
-      try { await doBuy('scalp', s.confidence, 'Scalp (5m)'); }
+      try { await doBuy('scalp', conf, `Scalp (${trigger})`); }
       catch (e: any) { addLog('error', `Scalp buy failed: ${e.message}`); }
       finally { setBusy(false); }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fiveMinSignal?.signal, fiveMinSignal?.confidence, running, scalpMode, position]);
+  }, [fiveMinSignal?.signal, fiveMinSignal?.confidence, oneMinSignal?.signal, oneMinSignal?.confidence, running, scalpMode, position]);
 
   // SCALP exit watcher — trailing take-profit / stop-loss on every price tick
   useEffect(() => {
@@ -206,7 +219,10 @@ export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSig
     if (entrySource !== 'scalp') return;
     const change = (currentPrice / entryPrice - 1) * 100;
     const hitSL = change <= -slPct;
-    const flipSell = fiveMinSignal?.signal === 'SELL' && (fiveMinSignal?.confidence ?? 0) >= 70;
+    // Flip-SELL on EITHER 1m or 5m turning bearish (1m reacts faster)
+    const flipSell =
+      (oneMinSignal?.signal === 'SELL' && (oneMinSignal?.confidence ?? 0) >= 65) ||
+      (fiveMinSignal?.signal === 'SELL' && (fiveMinSignal?.confidence ?? 0) >= 70);
 
     // Arm trailing once TP threshold is reached — then let profits run
     if (!trailingRef.current && change >= tpPct) {
@@ -239,7 +255,7 @@ export function BotPanel({ open, onClose, masterSignal, fiveMinSignal, oneMinSig
       finally { setBusy(false); }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPrice, fiveMinSignal?.signal, running, position, entrySource]);
+  }, [currentPrice, fiveMinSignal?.signal, oneMinSignal?.signal, running, position, entrySource]);
 
 
   if (!open) return null;
